@@ -17,8 +17,8 @@ if __name__ == "__main__":
     for f in args.infiles:
         d_year = json.load(f)
         for k, v in d_year.items():
-          if k in d_shorts:
-            d_shorts[k].append(v)
-          else:
-            d_shorts[k] = v
+            if k in d_shorts:
+                d_shorts[k].extend(v)
+            else:
+                d_shorts[k] = v
     json.dump(d_shorts, args.outfile)
