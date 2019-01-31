@@ -72,14 +72,16 @@ if __name__ == "__main__":
 
         # short data to add to our dictionary
         else:
-            ticker = row[1].strip()
-            d_shorts[ticker] = []
-            date_index = 0
-            for percent in row[3::2]: # Every second
-                if percent != '': # Lots of empty days
-                    if dates[date_index] != 0: # Don't add days ASIC said had bad data
-                        d_shorts[ticker].append((dates[date_index], float(percent)))
-                        
-                date_index += 1
+            # Eliminate exchange traded funds
+            if 'ETF' not in row[0]:
+                ticker = row[1].strip()
+                d_shorts[ticker] = []
+                date_index = 0
+                for percent in row[3::2]: # Every second
+                    if percent != '': # Lots of empty days
+                        if dates[date_index] != 0: # Don't add days ASIC said had bad data
+                            d_shorts[ticker].append((dates[date_index], float(percent)))
+                            
+                    date_index += 1
 
     json.dump(d_shorts, args.outfile)
