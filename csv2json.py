@@ -78,7 +78,7 @@ if __name__ == "__main__":
             for percent in row[3::2]: # Every second
                 if percent != '': # Lots of empty days
                     if dates[date_index] != 0: # Don't add days ASIC said had bad data
-                        d_shorts[ticker].append((dates[date_index], percent))
+                        d_shorts[ticker].append((dates[date_index], float(percent)))
                         
                 date_index += 1
 
