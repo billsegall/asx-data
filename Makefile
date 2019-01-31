@@ -7,7 +7,7 @@ MERGED = $(MERGEDDIR)/merged.json
 
 all: $(JSON) $(MERGED)
 
-$(MERGED): $(JSON)
+$(MERGED): $(JSON) merge.py
 	merge.py --infile $(JSON) --outfile $@
 
 # ASIC are inconistent in their date formats (grumble)
