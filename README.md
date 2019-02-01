@@ -13,9 +13,13 @@ Then, *cvs2json.py* was used to load that and convert it to json on a per year b
 the *Makefile* for how that's done and the differences per year. It also strips out the days which ASIC
 reported as having bad data.
 
-Next, *merge.py* was used to join those files together so we have a complete data set in **data/shorts/3.json**.
+Next, *merge.py* was used to join those files together so we have a complete data set in **data/shorts/3.merged**.
 
 *filter.py* is then used to extract a subset of that data for analysis. See the *Makefile* and
-**data/shorts/4.json** for an example.
+**data/shorts/4.filtered** for an example.
 
 ## Stock price data
+
+The historical ASX stock market data in **data/prices/0.raw** was obtained from the
+[ASX Hitorical Data](https://www.asxhistoricaldata.com/archive/) and then flattened and renamed for consistency
+
