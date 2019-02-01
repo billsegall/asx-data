@@ -1,14 +1,19 @@
 ASCIIDIR = data/1.ascii
 JSONDIR = data/2.json
 MERGEDDIR = data/3.merged
+FILTERDIR = data/4.filtered
 
 JSON = $(JSONDIR)/2010.json $(JSONDIR)/2011.json $(JSONDIR)/2012.json $(JSONDIR)/2013.json $(JSONDIR)/2014.json $(JSONDIR)/2015.json $(JSONDIR)/2016.json $(JSONDIR)/2017.json
 MERGED = $(MERGEDDIR)/merged.json
+FILTERED = $(FILTERDIR)/filtered.json
 
-all: $(JSON) $(MERGED)
+all: $(JSON) $(MERGED) $(FILTERED)
 
 $(MERGED): $(JSON) merge.py
 	merge.py --infile $(JSON) --outfile $@
+
+$(FILTERED): $(MERGED) filter.py
+	filter.py --infile $(MERGED) --outfile $@ --top 20 --minpercent 15
 
 # ASIC are inconistent in their date formats (grumble)
 
