@@ -1,44 +1,41 @@
-ASCIIDIR = data/shorts/1.ascii
-JSONDIR = data/shorts/2.json
-MERGEDDIR = data/shorts/3.merged
-FILTERDIR = data/shorts/4.filtered
+SHORTS = data/shorts
 
-JSON = $(JSONDIR)/2010.json $(JSONDIR)/2011.json $(JSONDIR)/2012.json $(JSONDIR)/2013.json $(JSONDIR)/2014.json $(JSONDIR)/2015.json $(JSONDIR)/2016.json $(JSONDIR)/2017.json
-MERGED = $(MERGEDDIR)/merged.json
-FILTERED = $(FILTERDIR)/filtered.json
+SHORTS_JSON = $(SHORTS)/2010.json $(SHORTS)/2011.json $(SHORTS)/2012.json $(SHORTS)/2013.json $(SHORTS)/2014.json $(SHORTS)/2015.json $(SHORTS)/2016.json $(SHORTS)/2017.json
+SHORTS_MERGED = $(SHORTS)/merged.json
+SHORTS_FILTERED = $(SHORTS)/filtered.json
 
-all: $(JSON) $(MERGED) $(FILTERED)
+all: $(SHORTS_JSON) $(SHORTS_MERGED) $(SHORTS_FILTERED)
 
-$(MERGED): $(JSON) merge.py
-	merge.py --infile $(JSON) --outfile $@
+$(SHORTS_MERGED): $(SHORTS_JSON) merge.py
+	merge.py --infile $(SHORTS_JSON) --outfile $@
 
-$(FILTERED): $(MERGED) filter.py
-	filter.py --infile $(MERGED) --outfile $@ --top 20 --minpercent 15
+$(SHORTS_FILTERED): $(SHORTS_MERGED) filter.py
+	filter.py --infile $(SHORTS_MERGED) --outfile $@ --top 20 --minpercent 15
 
-# ASIC are inconistent in their date formats (grumble)
+# ASIC are inconsistent in their date formats (grumble)
 
 # dd/mm/YYYY
-$(JSONDIR)/2010.json: $(ASCIIDIR)/2010.csv csv2json.py
+$(SHORTS)/2010.json: $(SHORTS)/2010.csv csv2json.py
 	csv2json.py --dateformat '%d/%m/%Y' --infile $< --outfile $@
 
-$(JSONDIR)/2011.json: $(ASCIIDIR)/2011.csv csv2json.py
+$(SHORTS)/2011.json: $(SHORTS)/2011.csv csv2json.py
 	csv2json.py --dateformat '%d/%m/%Y' --infile $< --outfile $@
 
-$(JSONDIR)/2014.json: $(ASCIIDIR)/2014.csv csv2json.py
+$(SHORTS)/2014.json: $(SHORTS)/2014.csv csv2json.py
 	csv2json.py --dateformat '%d/%m/%Y' --infile $< --outfile $@
 
-$(JSONDIR)/2015.json: $(ASCIIDIR)/2015.csv csv2json.py
+$(SHORTS)/2015.json: $(SHORTS)/2015.csv csv2json.py
 	csv2json.py --dateformat '%d/%m/%Y' --infile $< --outfile $@
 
 # YYYY-mm-dd
-$(JSONDIR)/2012.json: $(ASCIIDIR)/2012.csv csv2json.py
+$(SHORTS)/2012.json: $(SHORTS)/2012.csv csv2json.py
 	csv2json.py --dateformat '%Y-%m-%d' --infile $< --outfile $@
 
-$(JSONDIR)/2013.json: $(ASCIIDIR)/2013.csv csv2json.py
+$(SHORTS)/2013.json: $(SHORTS)/2013.csv csv2json.py
 	csv2json.py --dateformat '%Y-%m-%d' --infile $< --outfile $@
 
-$(JSONDIR)/2016.json: $(ASCIIDIR)/2016.csv csv2json.py
+$(SHORTS)/2016.json: $(SHORTS)/2016.csv csv2json.py
 	csv2json.py --dateformat '%Y-%m-%d' --infile $< --outfile $@
 
-$(JSONDIR)/2017.json: $(ASCIIDIR)/2017.csv csv2json.py
+$(SHORTS)/2017.json: $(SHORTS)/2017.csv csv2json.py
 	csv2json.py --dateformat '%Y-%m-%d' --infile $< --outfile $@
