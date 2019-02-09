@@ -2,12 +2,12 @@
 # Copyright (c) 2018, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import argparse, csv, json, time, sys
+import argparse, csv, sqlite3, time, sys
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Filter the ASX short positions lists')
-    parser.add_argument('--infile', type=argparse.FileType('r', encoding='ascii'), default=sys.stdin, help='input CSV')
-    parser.add_argument('--outfile', type=argparse.FileType('w'), default=sys.stdout, help='output JSON')
+    parser.add_argument('--infile', type=argparse.FileType('r', encoding='ascii'), default=sys.stdin, help='input csv')
+    parser.add_argument('--db', default='stocks.db', help='sqlite3 database to store into')
     parser.add_argument('--dateformat', default='%d/%m/%Y', help='Format of the data (strptime)')
     args = parser.parse_args()
     # print(args)
@@ -16,10 +16,10 @@ if __name__ == "__main__":
     # '', '', 'Trade Data', ('',)*              - Header
     # '', '', ('dd/mm/yy', '',)*                - The dates we need
     # '', '', ('#short', %short,)*              - Header
-    # 'Product', ...                            - Header
+    # 'Name', ...                               - Header
     # Name, Code, (#short, %short,)*            - The short data we want
     #
-    # We end up with dict[code] -> [date, %]
+    # We end up with dict[code] -> (Name, [date, %])
 
     # Days with bad data
     # https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/
@@ -72,16 +72,48 @@ if __name__ == "__main__":
 
         # short data to add to our dictionary
         else:
-            # Eliminate exchange traded funds
-            if 'ETF' not in row[0]:
-                ticker = row[1].strip()
-                d_shorts[ticker] = []
-                date_index = 0
-                for percent in row[3::2]: # Every second
-                    if percent != '': # Lots of empty days
-                        if dates[date_index] != 0: # Don't add days ASIC said had bad data
-                            d_shorts[ticker].append((dates[date_index], float(percent)))
-                            
-                    date_index += 1
+            name = row[0].strip()
+            ticker = row[1].strip()
+            d_shorts[ticker] = (name, [])
+            date_index = 0
+            for percent in row[3::2]: # Every second
+                if percent != '': # Lots of empty days
+                    if dates[date_index] != 0: # Don't add days ASIC said had bad data
+                        d_shorts[ticker][1].append((dates[date_index], float(percent)))
+                        #print("dates", dates[date_index])
+                        
+                date_index += 1
 
-    json.dump(d_shorts, args.outfile)
+    conn = sqlite3.connect(args.db)
+    c = conn.cursor()
+
+    # Output to database the symbols -> name mappings
+    try:
+        c.execute('''CREATE TABLE symbols (ticker text PRIMARY KEY, name text)''')
+    except sqlite3.OperationalError as error:
+        # table symbols already exists
+        pass
+
+    for k, v in d_shorts.items():
+        try:
+            c.execute('''INSERT OR REPLACE INTO symbols values (?, ?)''', (k, v[0]))
+        except:
+            print("Insert symbols", k, v[0], "failed")
+
+    # Output to database the symbols -> (date, short) mappings
+    try:
+        c.execute('''CREATE TABLE shorts (ticker text, date real, short real)''')
+    except sqlite3.OperationalError as error:
+        # table shorts already exists
+        pass
+
+    for k, v in d_shorts.items():
+        try:
+            for date, percent in v[1]:
+                #print("try", date, percent)
+                c.execute('''INSERT INTO shorts values (?, ?, ?)''', (k, date, percent))
+        except:
+            print("Insert shorts", k, date, percent, "failed")
+
+    conn.commit()
+    conn.close()
