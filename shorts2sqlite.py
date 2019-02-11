@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-# Copyright (c) 2018, Bill Segall
+# Copyright (c) 2018-2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
 import argparse, csv, sqlite3, time, sys
@@ -81,7 +81,7 @@ if __name__ == "__main__":
                     if dates[date_index] != 0: # Don't add days ASIC said had bad data
                         d_shorts[ticker][1].append((dates[date_index], float(percent)))
                         #print("dates", dates[date_index])
-                        
+
                 date_index += 1
 
     conn = sqlite3.connect(args.db)
@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     # Output to database the symbols -> (date, short) mappings
     try:
-        c.execute('''CREATE TABLE shorts (ticker text, date real, short real)''')
+        c.execute('''CREATE TABLE shorts (ticker text, date datetime, short real)''')
     except sqlite3.OperationalError as error:
         # table shorts already exists
         pass
