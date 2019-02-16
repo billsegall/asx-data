@@ -5,7 +5,13 @@
     </head>
 
     <body>
-        <h1>ASX</h1>
+        <h3>Select Ticker</h3>
+        <form method="POST" action="/">
+            {{ form.csrf_token }}
+            {{ form.ticker.label }} {{ form.ticker(size=6) }}
+            <input type="submit" value="Go">
+        </form>
+        <h3>{{ name }}</h3>
     </body>
 
     <footer>
