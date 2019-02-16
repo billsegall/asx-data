@@ -15,8 +15,7 @@ if __name__ == "__main__":
     conn = sqlite3.connect(args.db)
     c = conn.cursor()
     try:
-        c.execute('''CREATE TABLE prices (ticker text, date date, open real, high real, low real, close real, volume
-int)''')
+        c.execute('''CREATE TABLE prices (ticker text, date date, open real, high real, low real, close real, volume int)''')
     except sqlite3.OperationalError as error:
         # table symbols already exists
         pass
