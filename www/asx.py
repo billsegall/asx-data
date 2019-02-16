@@ -2,6 +2,7 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
+import stockdb
 import atexit, os, sqlite3
 from flask import Flask, g, request, render_template, send_from_directory
 from flask_wtf import FlaskForm
@@ -17,13 +18,7 @@ app.config.update(
     DATABASE = '../data/stocks.db'
 )
 
-# Database initialization/finalization
-def db_close():
-    db.close()
-
-db = sqlite3.connect(app.config['DATABASE'], detect_types=sqlite3.PARSE_DECLTYPES)
-
-#atexit.register(db_close)
+stocks = stockdb.StockDB(app.config['DATABASE'])
 
 @app.route('/favicon.ico')
 def favicon():
@@ -46,16 +41,9 @@ def index(ticker=None):
 
     if request.method == 'POST':
         ticker = request.form.get('ticker')
-        name = None
-        try:
-            c = db.cursor()
-            name = c.execute('select name from symbols where ticker = ?', (ticker,)).fetchone()[0]
-        except Exception as e:
-            name = "Unknown"
-            
+        name = stocks.ticker2name(ticker)
         return render_template('index.html', ticker=ticker, name=name, form=form)
 
-@app.route('/stock/')
-@app.route('/stock/<ticker>')
-def stock(ticker=None):
-    return render_template('stock.html', ticker=ticker)
+@app.route('/privacy')
+def privacy():
+    return render_template('privacy.html')
