@@ -3,6 +3,7 @@
 # All rights reserved. See LICENSE for details.
 
 import argparse, csv, sqlite3, time, sys
+import stockdb
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Populate database with historical data')
@@ -12,12 +13,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Create the prices table
-    conn = sqlite3.connect(args.db)
-    c = conn.cursor()
+    stockdb = stockdb.StockDB(args.db)  
+    c = stockdb.cursor()
     try:
-        c.execute('''CREATE TABLE prices (ticker text, date date, open real, high real, low real, close real, volume int)''')
+        stockdb.CreateTablePrices(False)
     except sqlite3.OperationalError as error:
-        # table symbols already exists
+        # table already exists
         pass
 
 
@@ -32,5 +33,5 @@ if __name__ == "__main__":
         except e as error:
             print("Insert shorts failed", e)
 
-    conn.commit()
-    conn.close()
+    stockdb.commit()
+    stockdb.close()

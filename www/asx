@@ -3,4 +3,5 @@ export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 export FLASK_APP=asx.py
 export WTF_CSRF_SECRET_KEY=926b93f2a3301883826827209a1623d4c326f21b
+export PYTHONPATH=../stockdb:$PYTHONPATH
 flask run --host=0.0.0.0

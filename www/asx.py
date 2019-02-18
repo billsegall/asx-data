@@ -2,8 +2,8 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import stockdb
 import atexit, os, sqlite3
+import stockdb
 from flask import Flask, g, request, render_template, send_from_directory
 from flask_wtf import FlaskForm
 from wtforms import StringField
@@ -15,7 +15,7 @@ app = Flask(__name__)
 app.config.update(
     SECRET_KEY =          '926b93f2a3301883826827209a1623d4c326f21b',
     WTF_CSRF_SECRET_KEY = '926b93f2a3301883826827209a1623d4c326f21b',
-    DATABASE = '../data/stocks.db'
+    DATABASE = '../stockdb/stockdb.db'
 )
 
 stocks = stockdb.StockDB(app.config['DATABASE'])

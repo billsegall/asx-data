@@ -3,9 +3,10 @@
 # All rights reserved. See LICENSE for details.
 
 import argparse, csv, sqlite3, time, sys
+import stockdb
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Filter the ASX short positions lists')
+    parser = argparse.ArgumentParser(description='Add the ASX short positions to stockdb')
     parser.add_argument('--infile', type=argparse.FileType('r', encoding='ascii'), default=sys.stdin, help='input csv')
     parser.add_argument('--db', default='stocks.db', help='sqlite3 database to store into')
     parser.add_argument('--dateformat', default='%d/%m/%Y', help='Format of the data (strptime)')
@@ -84,15 +85,15 @@ if __name__ == "__main__":
 
                 date_index += 1
 
-    conn = sqlite3.connect(args.db)
-    c = conn.cursor()
+
+    stockdb = stockdb.StockDB(args.db)
+    c = stockdb.cursor()
 
     # Output to database the symbols -> name mappings
     try:
-        c.execute('''CREATE TABLE symbols (ticker text PRIMARY KEY, name text)''')
+        stockdb.CreateTableSymbols(False)
     except sqlite3.OperationalError as error:
-        # table symbols already exists
-        pass
+        pass # Table already exists
 
     for k, v in d_shorts.items():
         try:
@@ -102,10 +103,9 @@ if __name__ == "__main__":
 
     # Output to database the symbols -> (date, short) mappings
     try:
-        c.execute('''CREATE TABLE shorts (ticker text, date datetime, short real)''')
+        stockdb.CreateTableShorts(False)
     except sqlite3.OperationalError as error:
-        # table shorts already exists
-        pass
+        pass # Table already exists
 
     for k, v in d_shorts.items():
         try:
@@ -115,5 +115,5 @@ if __name__ == "__main__":
         except:
             print("Insert shorts", k, date, percent, "failed")
 
-    conn.commit()
-    conn.close()
+    stockdb.commit()
+    stockdb.close()
