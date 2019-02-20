@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+    <head>
+        <title>ASX shorts</title>
+        <link rel="stylesheet" href='../static/style.css'/>
+    </head>
+
+    <body>
+        <h3>Shorts</h3>
+        <table border = 1>
+            <thead>
+                <td>Ticker</td>
+                <td>Date</td>
+                <td>Percent short</td>
+            </thead>
+
+            {% for row in rows %}
+                <tr>
+                    <td><a href="/{{row["ticker"]}}">{{row["ticker"]}}</a></td>
+                    <td>{{date2human(row["date"])}}</td>
+                    <td>{{row["max(short)"]}}</td>
+                </tr>
+            {% endfor %}
+        </table>
+    </body>
+
+{% include "footer.html" %}
+</html>

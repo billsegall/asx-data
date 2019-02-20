@@ -29,7 +29,7 @@ ticker | name
 BHP    | BHP BILLITON LIMITED ORDINARY
 
 ### shorts
-ticker | date | percent
+ticker | date | short
 ------ | ---- | -------
 BHP    | 1281657600.0 | 0.7
 BHP    | 1281571200.0 | 0.66

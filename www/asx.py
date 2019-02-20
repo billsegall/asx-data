@@ -2,7 +2,7 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import atexit, os, sqlite3
+import atexit, datetime, os, sqlite3, time
 import stockdb
 from flask import Flask, g, request, render_template, send_from_directory
 from flask_wtf import FlaskForm
@@ -30,19 +30,36 @@ class StockForm(FlaskForm):
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<ticker>', methods=('GET', 'POST'))
-def index(ticker=None):
+def index(ticker=None, name=None):
     form = StockForm()
 
     if form.validate_on_submit():
         pass
 
-    if request.method == 'GET':
-        return render_template('index.html', ticker=ticker, form=form)
-
     if request.method == 'POST':
         ticker = request.form.get('ticker')
+
+    if ticker != None:
         name = stocks.ticker2name(ticker)
-        return render_template('index.html', ticker=ticker, name=name, form=form)
+
+    return render_template('index.html', ticker=ticker, name=name, form=form)
+
+# Our shorts table stores times as ints and we want to be able to display them nicely
+@app.context_processor
+def utility_processor():
+    def date2human(date):
+        t = datetime.datetime.fromtimestamp(date)
+        return t.strftime('%d/%m/%Y')
+    return dict(date2human=date2human)
+
+@app.route('/shorts', methods=('GET', 'POST'))
+def shorts():
+    c = stocks.cursor()
+    c.row_factory = sqlite3.Row
+    c.execute('select ticker, date, max(short) from shorts where length(ticker) = 3 group by ticker order by short desc')
+    #print(c.description)
+    rows = c.fetchall()
+    return render_template('shorts.html', rows=rows)
 
 @app.route('/privacy')
 def privacy():
