@@ -127,33 +127,42 @@ def graph_ticker(ticker):
     #host.set_ylim(0, 2)
 
     c = stocks.cursor()
-    c.execute('SELECT date, short FROM shorts where ticker = ? order by date asc', (ticker,))
-    data = c.fetchall()
 
+    # Prices
     dates = []
     values = []
-    
+    c.execute('SELECT date, close FROM prices where ticker = ? order by date asc', (ticker,))
+    data = c.fetchall()
     for row in data:
         t = datetime.datetime.fromtimestamp(row[0])
         dates.append(parser.parse(t.strftime('%m/%d/%Y')))
         values.append(row[1])
-        #print(row[0], t.strftime('%m/%d/%Y'))
+    ax.plot_date(dates, values, '-', label="price", lw=1)
 
-    ax.plot_date(dates, values, '-', label="short", lw=1)
-
-    c.execute('SELECT date, close FROM prices where ticker = ? order by date asc', (ticker,))
-    data = c.fetchall()
-
+    # Shorts
     dates = []
     values = []
-    
+    c.execute('SELECT date, short FROM shorts where ticker = ? order by date asc', (ticker,))
+    data = c.fetchall()
     for row in data:
-        t = datetime.datetime.fromtimestamp(float(row[0]))
+        t = datetime.datetime.fromtimestamp(row[0])
         dates.append(parser.parse(t.strftime('%m/%d/%Y')))
         values.append(row[1])
-        #print(row[0], t.strftime('%m/%d/%Y'))
+    ax.plot_date(dates, values, '-', label="short", lw=1)
 
-    ax.plot_date(dates, values, '-', label="price", lw=1)
-    ax.legend()
+    # Bottom 
+    ax.set_xlabel("Date")
+
+    # Left
+    ax.set_ylabel("Price")
+
+    # Right
+    par = ax.twinx()
+    par.set_ylabel("% Short")
+
+    # Legend
+    fig.legend()
+
+    #par.set_ylim(0, 100)
 
     return fig
