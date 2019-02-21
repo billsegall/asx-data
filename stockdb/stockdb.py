@@ -47,7 +47,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists prices')
-        c.execute('create table prices (ticker text, date date, open real, high real, low real, close real, volume int)')
+        c.execute('create table prices (ticker text, date datetime, open real, high real, low real, close real, volume int)')
         c.close()
 
     def ticker2name(self, ticker):
@@ -133,11 +133,25 @@ if __name__ == "__main__":
     for date in bad:
         baddates.append(time.mktime(time.strptime(date, "%d %B %Y")))
 
-    dates = []
+    # table symbols: symbols -> name mappings
+    try:
+        stockdb.CreateTableSymbols(False)
+    except sqlite3.OperationalError as error:
+        print("Database symbols already exists, Use --drop to recreate")
+        sys.exit(1)
+
+    # table shorts: symbols -> (date, short) mappings
+    try:
+        stockdb.CreateTableShorts(False)
+    except sqlite3.OperationalError as error:
+        print("Database shorts already exists, Use --drop to recreate")
+        sys.exit(1)
+
     for f, fmt in filedateformats.items():
         print("Processing:", f, fmt)
         reader = csv.reader(open(f, 'r'))
         d_shorts = {}
+        dates = []
         for row in reader:
 
             # There is no row zero
@@ -176,7 +190,8 @@ if __name__ == "__main__":
             else:
                 name = row[0].strip()
                 ticker = row[1].strip()
-                d_shorts[ticker] = (name, [])
+                if ticker not in d_shorts:
+                    d_shorts[ticker] = (name, [])
                 date_index = 0
                 for percent in row[3::2]: # Every second
                     if percent != '': # Lots of empty days
@@ -186,35 +201,21 @@ if __name__ == "__main__":
 
                     date_index += 1
 
-    # Output to database the symbols -> name mappings
-    try:
-        stockdb.CreateTableSymbols(False)
-    except sqlite3.OperationalError as error:
-        print("Database symbols already exists, Use --drop to recreate")
-        sys.exit(1)
+        for k, v in d_shorts.items():
+            try:
+                c.execute('insert or replace into symbols values (?, ?)', (k, v[0]))
+            except:
+                print("Insert symbols", k, v[0], "failed")
+                sys.exit(1)
 
-    for k, v in d_shorts.items():
-        try:
-            c.execute('insert or replace into symbols values (?, ?)', (k, v[0]))
-        except:
-            print("Insert symbols", k, v[0], "failed")
-            sys.exit(1)
-
-    # Output to database the symbols -> (date, short) mappings
-    try:
-        stockdb.CreateTableShorts(False)
-    except sqlite3.OperationalError as error:
-        print("Database shorts already exists, Use --drop to recreate")
-        sys.exit(1)
-
-    for k, v in d_shorts.items():
-        try:
-            for date, percent in v[1]:
-                #print("try", date, percent)
-                c.execute('insert into shorts values (?, ?, ?)', (k, date, percent))
-        except:
-            print("Insert shorts", k, date, percent, "failed")
-            sys.exit(1)
+        for k, v in d_shorts.items():
+            try:
+                for date, percent in v[1]:
+                    #print("try", date, percent)
+                    c.execute('insert into shorts values (?, ?, ?)', (k, date, percent))
+            except:
+                print("Insert shorts", k, date, percent, "failed")
+                sys.exit(1)
 
     stockdb.commit()
     stockdb.close()
