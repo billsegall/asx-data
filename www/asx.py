@@ -2,13 +2,18 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import atexit, datetime, math, os, sqlite3, time
+# Local
 import stockdb
-from dateutil import parser
-from flask import Flask, g, request, render_template, send_from_directory
+
+# System
+import atexit, datetime, io, math, os, random, sqlite3, time
+from flask import Flask, Response, g, request, render_template, send_from_directory
 from flask_wtf import FlaskForm
 from wtforms import StringField
 from wtforms.validators import DataRequired
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
@@ -76,24 +81,6 @@ def shorts():
 def privacy():
     return render_template('privacy.html')
 
-import io
-import random
-from flask import Response
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-from mpl_toolkits.axisartist.parasite_axes import HostAxes, ParasiteAxes
-
-@app.route('/images/<ticker>-price.png', methods=('GET',))
-def price_png(ticker=None):
-    if ticker == None:
-        return # FIXME
-    fig = graph_both(ticker)
-    #fig = graph_price(ticker)
-    output = io.BytesIO()
-    FigureCanvas(fig).print_png(output)
-    return Response(output.getvalue(), mimetype='image/png')
-
 @app.route('/images/<ticker>.png', methods=('GET',))
 def short_png(ticker=None):
     if ticker == None:
@@ -142,7 +129,6 @@ def graph_ticker(ticker):
         dates.append(datetime.datetime.fromtimestamp(row[0]))
         values.append(scale(row[1], xao_min, xao_max, price_min, price_max))
     ax.plot_date(dates, values, '-', label="XAO", lw=1)
-
 
     # Shorts (scaled to percentage, label on right)
     dates = []
