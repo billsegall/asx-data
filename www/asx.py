@@ -2,7 +2,7 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import atexit, datetime, os, sqlite3, time
+import atexit, datetime, math, os, sqlite3, time
 import stockdb
 from dateutil import parser
 from flask import Flask, g, request, render_template, send_from_directory
@@ -104,65 +104,67 @@ def short_png(ticker=None):
     return Response(output.getvalue(), mimetype='image/png')
 
 def graph_ticker(ticker):
-    # Grab a figure
-    #fig = plt.figure()
-    fig, ax = plt.subplots()
-
-    # Axes
-    #host = HostAxes(fig, [0.15, 0.1, 0.65, 0.8])
-    #parasite1 = ParasiteAxes(host, sharex=host)
-    #host.parasites.append(parasite1)
-    #host.set_ylabel("Price")
-    #host.set_xlabel("Date")
-    #host.axis["right"].set_visible(False)
-
-    #parasite1.set_ylabel("Short")
-    #parasite1.axis["right"].set_visible(True)
-    #parasite1.axis["right"].major_ticklabels.set_visible(True)
-    #parasite1.axis["right"].label.set_visible(True)
-
-    #fig.add_axes(host)
-
-    #host.set_xlim(0, 2)
-    #host.set_ylim(0, 2)
+    '''
+    For each ticker we plot:
+    * The ticker's closing price
+    * The XAO scaled to that
+    * The short percentage (inverted for correlation)
+    '''
 
     c = stocks.cursor()
+    c.execute('SELECT min(close), max(close) FROM prices where ticker = ?', (ticker,))
+    price_min, price_max = c.fetchone()
 
-    # Prices
+    c.execute('SELECT min(close), max(close) FROM prices where ticker = "XAO"')
+    xao_min, xao_max = c.fetchone()
+
+    # Grab a figure
+    fig, ax = plt.subplots()
+    ax.set_xlabel("Date")
+
+    # Prices (allowed to scale naturally and is our left axis label)
     dates = []
     values = []
     c.execute('SELECT date, close FROM prices where ticker = ? order by date asc', (ticker,))
     data = c.fetchall()
     for row in data:
-        t = datetime.datetime.fromtimestamp(row[0])
-        dates.append(parser.parse(t.strftime('%m/%d/%Y')))
+        dates.append(datetime.datetime.fromtimestamp(row[0]))
         values.append(row[1])
     ax.plot_date(dates, values, '-', label="price", lw=1)
+    ax.set_ylabel("Price")
 
-    # Shorts
+    # XAO (scaled to price, no label)
+    dates = []
+    values = []
+    c.execute('SELECT date, close FROM prices where ticker = "XAO" order by date asc')
+    data = c.fetchall()
+    for row in data:
+        dates.append(datetime.datetime.fromtimestamp(row[0]))
+        values.append(scale(row[1], xao_min, xao_max, price_min, price_max))
+    ax.plot_date(dates, values, '-', label="XAO", lw=1)
+
+
+    # Shorts (scaled to percentage, label on right)
     dates = []
     values = []
     c.execute('SELECT date, short FROM shorts where ticker = ? order by date asc', (ticker,))
     data = c.fetchall()
     for row in data:
-        t = datetime.datetime.fromtimestamp(row[0])
-        dates.append(parser.parse(t.strftime('%m/%d/%Y')))
-        values.append(row[1])
+        dates.append(datetime.datetime.fromtimestamp(row[0]))
+        values.append(scale(row[1], 0, 100, price_min, price_max))
     ax.plot_date(dates, values, '-', label="short", lw=1)
-
-    # Bottom 
-    ax.set_xlabel("Date")
-
-    # Left
-    ax.set_ylabel("Price")
-
-    # Right
+    # Add a parasitic scale to the right
     par = ax.twinx()
     par.set_ylabel("% Short")
+    par.set_ylim(0, 100)
 
     # Legend
-    fig.legend()
-
-    #par.set_ylim(0, 100)
+    fig.legend(loc=2, fontsize='small')
 
     return fig
+
+def scale(this, min_from, max_from, min_to, max_to):
+    # e.g, 4500 is half in       3000-6000 scaled between $3 and $5 should be 4
+    # e.g, 4000 is one third in  3000-6000 scaled between $7 and $9 should be 6.66
+    proportion = (this - min_from) / (max_from - min_from)       # 0.5, .33
+    return min_to + (max_to - min_to) * proportion               # 4, 7.66
