@@ -35,30 +35,35 @@ class StockForm(FlaskForm):
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<ticker>', methods=('GET', 'POST'))
-def index(ticker=None, name='Choose ticker'):
+def index(ticker=None, description='Choose ticker'):
     form = StockForm()
 
     if not form.validate_on_submit():
-        name = 'Invalid ticker'
+        description = 'Invalid ticker'
         ticker = None
 
     if request.method == 'POST':
         ticker = request.form.get('ticker')
 
     if ticker != None:
-        name = stocks.ticker2name(ticker)
+        name, industry = stocks.LookupSymbol(ticker)
+        if name != None:
+            description = name + ' [' + industry + ']'
 
-    return render_template('index.html', ticker=ticker, name=name, form=form)
+    return render_template('index.html', ticker=ticker, description=description, form=form)
 
-@app.route('/stock', methods=('GET',))
 @app.route('/stock/<ticker>', methods=('GET',))
 def stock(ticker=None, name=None):
     if ticker == None:
         return render_template('index.html', ticker=ticker, name=name)
 
     ticker = ticker.upper()
-    name = stocks.ticker2name(ticker)
-    return render_template('stock.html', ticker=ticker, name=name)
+    name, industry = stocks.LookupSymbol(ticker)
+    if name != None:
+        description = name + ' [' + industry + ']'
+    else:
+        description = "Unknown"
+    return render_template('stock.html', ticker=ticker, description=description)
 
 
 @app.context_processor

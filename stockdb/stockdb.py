@@ -50,13 +50,14 @@ class StockDB:
         c.execute('create table prices (ticker text, date datetime, open real, high real, low real, close real, volume int)')
         c.close()
 
-    def ticker2name(self, ticker):
+    def LookupSymbol(self, ticker):
         c = self.db.cursor()
         try:
-            name = c.execute('select name from symbols where ticker = ?', (ticker,)).fetchone()[0]
+            name, industry = c.execute('select name,industry from symbols where ticker = ?', (ticker,)).fetchone()
         except Exception as e:
-            name = "Unknown"
-        return name
+            print(e)
+            return (None, None)
+        return (name, industry)
 
 
 # When run we populate our database which requires some
