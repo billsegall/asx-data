@@ -3,30 +3,30 @@ ASX short lists processing
 
 ## ASX Short data
 
-The **raw** data files _data/shorts/RR*.csv_ were obtained from
+The **raw** short data was obtained from
 [ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/), and
 contains some [inaccuracies](https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/).
 
-These were processed by hand for consistency of name and character encoding to _data/shorts/20YY.csv_ using LibreOffice.
+These were processed by hand for consistency of name and character encoding to _data/shorts/20YY.csv_ using LibreOffice.  See the Makefile for how that's put
+into the database.
 
-From there, _shorts2sqlite.py_ loads them into the database (by default at _data/stocks.db_).
+## ASX price and symbol data
 
-## ASX price data
+The **raw** price and symbol data was obtained from
+[ASX Historical Data](https://www.asxhistoricaldata.com/archive/) and flattened
+and renamed for consistency. See the Makefile for how that's put into the
+database.
 
-The **raw** data files in _data/prices/raw/*.txt_ were obtained from
-[ASX Historical Data](https://www.asxhistoricaldata.com/archive/) and flattened and renamed for consistency.
-The raw data does **not** cater for splits and dividends.
-
-These are concatenated into _data/prices/prices.csv_ by the _Makefile_.  From there, _prices2sqlite.py_ loads them into the database (by default at _data/stocks.db_).
+Note that the raw data does **not** cater for splits and dividends.
 
 ## The database
 
 The database consists of three tables described below by example:
 
 ### symbols
-ticker | name
------- | ----
-BHP    | BHP BILLITON LIMITED ORDINARY
+ticker | name | industry
+------ | ---- | ---
+BHP    | BHP BILLITON LIMITED ORDINARY | Materials
 
 ### shorts
 ticker | date | short

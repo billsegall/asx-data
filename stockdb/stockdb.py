@@ -31,7 +31,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table symbols (ticker text primary key, name text)')
+        c.execute('create table symbols (ticker text primary key, name text, industry text)')
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -68,9 +68,32 @@ if __name__ == "__main__":
     parser.set_defaults(drop=False)
     args = parser.parse_args()
 
-    # Create the tables
     stockdb = StockDB(args.db)  
     c = stockdb.cursor()
+
+    # Symbols
+    try:
+        stockdb.CreateTableSymbols(False)
+    except sqlite3.OperationalError as error:
+        print("Database symbols already exists, Use --drop to recreate")
+        sys.exit(1)
+
+    # Symbol data - see README.md for how that's obtained
+    # The input has CSV has tthree header rows and is then in the form:
+    # name | symbol | industry
+    symbols = 'symbols/ASXListedCompanies.csv'
+    print("Processing:", symbols)
+    reader = csv.reader(open(symbols, 'r'))
+    for row in reader:
+        if reader.line_num >= 4: # There is no row 0
+            try:
+                c.execute('insert into symbols values (?, ?, ?)',
+                    (row[1].strip(), row[0].strip(), row[2].strip()))
+            except Exception as error:
+                print("Insert into symbols failed", error, row)
+                sys.exit(1)
+
+    # Prices
     try:
         stockdb.CreateTablePrices(args.drop)
     except sqlite3.OperationalError as error:
@@ -97,8 +120,6 @@ if __name__ == "__main__":
             print("Insert into prices failed", error, row)
             sys.exit(1)
 
-
-
     # Short data - see README.md for how that's obtained
     # The input CSV is in the form:
     # '', '', 'Trade Data', ('',)*              - Header
@@ -106,7 +127,6 @@ if __name__ == "__main__":
     # '', '', ('#short', %short,)*              - Header
     # 'Name', ...                               - Header
     # Name, Code, (#short, %short,)*            - The short data we want
-    #
 
     # The ASX are inconsistent in their date formats
     filedateformats = {
@@ -120,7 +140,6 @@ if __name__ == "__main__":
         'shorts/2017.csv' : '%Y-%m-%d'
     }
 
-
     # The ASX have some days with bad data
     # https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/
     bad = [ "19 June 2017", "16 June 2017", "15 June 2017", "1 November 2016", "3 October 2016",
@@ -133,14 +152,7 @@ if __name__ == "__main__":
     for date in bad:
         baddates.append(time.mktime(time.strptime(date, "%d %B %Y")))
 
-    # table symbols: symbols -> name mappings
-    try:
-        stockdb.CreateTableSymbols(False)
-    except sqlite3.OperationalError as error:
-        print("Database symbols already exists, Use --drop to recreate")
-        sys.exit(1)
-
-    # table shorts: symbols -> (date, short) mappings
+    # table shorts: symbol -> (date, short) mappings
     try:
         stockdb.CreateTableShorts(False)
     except sqlite3.OperationalError as error:
@@ -200,13 +212,6 @@ if __name__ == "__main__":
                             #print("dates", dates[date_index])
 
                     date_index += 1
-
-        for k, v in d_shorts.items():
-            try:
-                c.execute('insert or replace into symbols values (?, ?)', (k, v[0]))
-            except:
-                print("Insert symbols", k, v[0], "failed")
-                sys.exit(1)
 
         for k, v in d_shorts.items():
             try:

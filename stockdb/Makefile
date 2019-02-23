@@ -3,19 +3,16 @@
 
 DB = stockdb.db
 
-SHORTS = shorts
-SHORTS_CSV=$(SHORTS)/2010.csv $(SHORTS)/2011.csv $(SHORTS)/2012.csv $(SHORTS)/2013.csv $(SHORTS)/2014.csv $(SHORTS)/2015.csv $(SHORTS)/2016.csv $(SHORTS)/2017.csv
-
-PRICES = prices
-PRICES_CSV = $(PRICES)/prices.csv
-
 all: $(DB)
 
 clean:
 	rm $(DB)
 
-$(PRICES_CSV):
-	cat $(PRICES)/raw/*.txt > $(PRICES_CSV)
 
-$(DB): $(SHORTS_CSV) $(PRICES_CSV) stockdb.py
+SHORTS_CSV=shorts/2010.csv shorts/2011.csv shorts/2012.csv shorts/2013.csv shorts/2014.csv shorts/2015.csv shorts/2016.csv shorts/2017.csv
+
+prices/prices.csv:
+	cat prices/raw/*.txt > $@
+
+$(DB): $(SHORTS_CSV) stockdb.py prices/prices.csv symbols/ASXListedCompanies.csv
 	stockdb.py  --db $@ 
