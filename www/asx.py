@@ -9,8 +9,7 @@ import stockdb
 import atexit, datetime, io, math, os, random, sqlite3, time
 from flask import Flask, Response, g, request, render_template, send_from_directory
 from flask_wtf import FlaskForm
-from wtforms import StringField
-from wtforms.validators import DataRequired
+from wtforms import StringField, validators
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
@@ -32,15 +31,16 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 class StockForm(FlaskForm):
-    ticker = StringField('', validators=[DataRequired()])
+    ticker = StringField('Enter ticker', validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<ticker>', methods=('GET', 'POST'))
-def index(ticker=None, name=None):
+def index(ticker=None, name='Choose ticker'):
     form = StockForm()
 
-    if form.validate_on_submit():
-        pass
+    if not form.validate_on_submit():
+        name = 'Invalid ticker'
+        ticker = None
 
     if request.method == 'POST':
         ticker = request.form.get('ticker')

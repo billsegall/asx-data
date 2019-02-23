@@ -6,13 +6,12 @@
 
     <body>
         <p>View list of <a href="/shorts">short stocks</a></p>
-        <h3>Select Ticker</h3>
         <form method="POST" action="/">
             {{ form.csrf_token }}
-            {{ form.ticker.label }} {{ form.ticker(size=6) }}
-            <input type="submit" value="Go">
+            <b>{{ form.ticker.label }}</b> {{ form.ticker(size=6) }}
+            <input type="submit" color="green", value="Submit">
+            {{ name }}
         </form>
-        <h3>{{ name }}</h3>
     </body>
 
 {% include "footer.html" %}
