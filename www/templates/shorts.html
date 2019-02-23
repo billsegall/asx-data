@@ -8,14 +8,14 @@
         <h3>Shorts</h3>
         <table border = 1>
             <thead>
-                <td>Ticker</td>
+                <td>Symbol</td>
                 <td>Date</td>
                 <td>Percent short</td>
             </thead>
 
             {% for row in rows %}
                 <tr>
-                    <td><a href="/stock/{{row["ticker"]}}">{{row["ticker"]}}</a></td>
+                    <td><a href="/stock/{{row["symbol"]}}">{{row["symbol"]}}</a></td>
                     <td>{{date2human(row["date"])}}</td>
                     <td>{{row["max(short)"]}}</td>
                 </tr>

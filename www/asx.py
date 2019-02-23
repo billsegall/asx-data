@@ -31,39 +31,39 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 class StockForm(FlaskForm):
-    ticker = StringField('Enter ticker', validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
+    symbol = StringField('Enter symbol', validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
 
 @app.route('/', methods=('GET', 'POST'))
-@app.route('/<ticker>', methods=('GET', 'POST'))
-def index(ticker=None, description='Choose ticker'):
+@app.route('/<symbol>', methods=('GET', 'POST'))
+def index(symbol=None, description='Choose symbol'):
     form = StockForm()
 
     if not form.validate_on_submit():
-        description = 'Invalid ticker'
-        ticker = None
+        description = 'Invalid symbol'
+        symbol = None
 
     if request.method == 'POST':
-        ticker = request.form.get('ticker')
+        symbol = request.form.get('symbol')
 
-    if ticker != None:
-        name, industry = stocks.LookupSymbol(ticker)
+    if symbol != None:
+        name, industry = stocks.LookupSymbol(symbol)
         if name != None:
             description = name + ' [' + industry + ']'
 
-    return render_template('index.html', ticker=ticker, description=description, form=form)
+    return render_template('index.html', symbol=symbol, description=description, form=form)
 
-@app.route('/stock/<ticker>', methods=('GET',))
-def stock(ticker=None, name=None):
-    if ticker == None:
-        return render_template('index.html', ticker=ticker, name=name)
+@app.route('/stock/<symbol>', methods=('GET',))
+def stock(symbol=None, name=None):
+    if symbol == None:
+        return render_template('index.html', symbol=symbol, name=name)
 
-    ticker = ticker.upper()
-    name, industry = stocks.LookupSymbol(ticker)
+    symbol = symbol.upper()
+    name, industry = stocks.LookupSymbol(symbol)
     if name != None:
         description = name + ' [' + industry + ']'
     else:
         description = "Unknown"
-    return render_template('stock.html', ticker=ticker, description=description)
+    return render_template('stock.html', symbol=symbol, description=description)
 
 
 @app.context_processor
@@ -77,7 +77,7 @@ def utility_processor():
 def shorts():
     c = stocks.cursor()
     c.row_factory = sqlite3.Row
-    c.execute('select ticker, date, max(short) from shorts where length(ticker) = 3 group by ticker order by short desc')
+    c.execute('select symbol, date, max(short) from shorts where length(symbol) = 3 group by symbol order by short desc')
     #print(c.description)
     rows = c.fetchall()
     return render_template('shorts.html', rows=rows)
@@ -86,28 +86,28 @@ def shorts():
 def privacy():
     return render_template('privacy.html')
 
-@app.route('/images/<ticker>.png', methods=('GET',))
-def short_png(ticker=None):
-    if ticker == None:
+@app.route('/images/<symbol>.png', methods=('GET',))
+def short_png(symbol=None):
+    if symbol == None:
         return # FIXME
-    fig = graph_ticker(ticker)
+    fig = graph_symbol(symbol)
     output = io.BytesIO()
     FigureCanvas(fig).print_png(output)
     return Response(output.getvalue(), mimetype='image/png')
 
-def graph_ticker(ticker):
+def graph_symbol(symbol):
     '''
-    For each ticker we plot:
-    * The ticker's closing price
+    For each symbol we plot:
+    * The symbol's closing price
     * The XAO scaled to that
     * The short percentage (inverted for correlation)
     '''
 
     c = stocks.cursor()
-    c.execute('SELECT min(close), max(close) FROM prices where ticker = ?', (ticker,))
+    c.execute('SELECT min(close), max(close) FROM prices where symbol = ?', (symbol,))
     price_min, price_max = c.fetchone()
 
-    c.execute('SELECT min(close), max(close) FROM prices where ticker = "XAO"')
+    c.execute('SELECT min(close), max(close) FROM prices where symbol = "XAO"')
     xao_min, xao_max = c.fetchone()
 
     # Grab a figure
@@ -117,7 +117,7 @@ def graph_ticker(ticker):
     # Prices (allowed to scale naturally and is our left axis label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices where ticker = ? order by date asc', (ticker,))
+    c.execute('SELECT date, close FROM prices where symbol = ? order by date asc', (symbol,))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
@@ -128,7 +128,7 @@ def graph_ticker(ticker):
     # XAO (scaled to price, no label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices where ticker = "XAO" order by date asc')
+    c.execute('SELECT date, close FROM prices where symbol = "XAO" order by date asc')
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
@@ -138,7 +138,7 @@ def graph_ticker(ticker):
     # Shorts (scaled to percentage, label on right)
     dates = []
     values = []
-    c.execute('SELECT date, short FROM shorts where ticker = ? order by date asc', (ticker,))
+    c.execute('SELECT date, short FROM shorts where symbol = ? order by date asc', (symbol,))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))

@@ -31,7 +31,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table symbols (ticker text primary key, name text, industry text)')
+        c.execute('create table symbols (symbol text primary key, name text, industry text)')
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -39,7 +39,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists shorts')
-        c.execute('create table shorts (ticker text, date datetime, short real)')
+        c.execute('create table shorts (symbol text, date datetime, short real)')
         c.close()
 
     def CreateTablePrices(self, drop):
@@ -47,13 +47,13 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists prices')
-        c.execute('create table prices (ticker text, date datetime, open real, high real, low real, close real, volume int)')
+        c.execute('create table prices (symbol text, date datetime, open real, high real, low real, close real, volume int)')
         c.close()
 
-    def LookupSymbol(self, ticker):
+    def LookupSymbol(self, symbol):
         c = self.db.cursor()
         try:
-            name, industry = c.execute('select name,industry from symbols where ticker = ?', (ticker,)).fetchone()
+            name, industry = c.execute('select name,industry from symbols where symbol = ?', (symbol,)).fetchone()
         except Exception as e:
             print(e)
             return (None, None)
@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
     # Price data - see README.md for how that's obtained
     # The input CSV is in the form:
-    # ticker | date | open | high | low | close | volume
+    # symbol | date | open | high | low | close | volume
     prices = 'prices/prices.csv'
     print("Processing:", prices)
     for row in csv.reader(open(prices, 'r')):
@@ -202,14 +202,14 @@ if __name__ == "__main__":
             # short data to add to our dictionary
             else:
                 name = row[0].strip()
-                ticker = row[1].strip()
-                if ticker not in d_shorts:
-                    d_shorts[ticker] = (name, [])
+                symbol = row[1].strip()
+                if symbol not in d_shorts:
+                    d_shorts[symbol] = (name, [])
                 date_index = 0
                 for percent in row[3::2]: # Every second
                     if percent != '': # Lots of empty days
                         if dates[date_index] != 0: # Don't add days ASIC said had bad data
-                            d_shorts[ticker][1].append((dates[date_index], float(percent)))
+                            d_shorts[symbol][1].append((dates[date_index], float(percent)))
                             #print("dates", dates[date_index])
 
                     date_index += 1
@@ -222,6 +222,13 @@ if __name__ == "__main__":
             except:
                 print("Insert shorts", k, date, percent, "failed")
                 sys.exit(1)
+
+            # Some symbols will be delisted and not in our symbol list so add
+            # what we can ignoring errors
+            try:
+                c.execute('insert into symbols values (?, ?, "Delisted")', (k, v[0]))
+            except Exception as e:
+                pass
 
     stockdb.commit()
     stockdb.close()

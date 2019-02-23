@@ -24,17 +24,16 @@ Note that the raw data does **not** cater for splits and dividends.
 The database consists of three tables described below by example:
 
 ### symbols
-ticker | name | industry
+symbol | name | industry
 ------ | ---- | ---
 BHP    | BHP BILLITON LIMITED ORDINARY | Materials
 
 ### shorts
-ticker | date | short
+symbol | date | short
 ------ | ---- | -------
-BHP    | 1281657600.0 | 0.7
 BHP    | 1281571200.0 | 0.66
 
 ### prices
-ticker | date | open | high | low | close | volume
+symbol | date | open | high | low | close | volume
 ------ | ---- | ---- | ---- | --- | ----- | ------
 BHP    | 1281657600.0 | 42.75 | 43.26 | 42.71 | 43.08 | 3691070

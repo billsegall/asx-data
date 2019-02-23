@@ -8,7 +8,7 @@
         <p>View list of <a href="/shorts">short stocks</a></p>
         <form method="POST" action="/">
             {{ form.csrf_token }}
-            <b>{{ form.ticker.label }}</b> {{ form.ticker(size=6) }}
+            <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}
             <input type="submit" color="green", value="Submit">
             {{ description }}
         </form>
