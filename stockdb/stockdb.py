@@ -80,7 +80,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Symbol data - see README.md for how that's obtained
-    # The input has CSV has tthree header rows and is then in the form:
+    # The input has CSV has three header rows and is then in the form:
     # name | symbol | industry
     symbols = 'symbols/ASXListedCompanies.csv'
     print("Processing:", symbols)
@@ -94,32 +94,6 @@ if __name__ == "__main__":
                 print("Insert into symbols failed", error, row)
                 sys.exit(1)
 
-    # Prices
-    try:
-        stockdb.CreateTablePrices(args.drop)
-    except sqlite3.OperationalError as error:
-        # table already exists
-        print("Database %s already exists, Use --drop to recreate" %(args.db,))
-        sys.exit(1)
-
-    # Price data - see README.md for how that's obtained
-    # The input CSV is in the form:
-    # symbol | date | open | high | low | close | volume
-    prices = 'prices/prices.csv'
-    print("Processing:", prices)
-    for row in csv.reader(open(prices, 'r')):
-        try:
-            c.execute('insert into prices values (?, ?, ?, ?, ?, ?, ?)',
-                (row[0].strip(),
-                time.mktime(time.strptime(row[1].strip(), '%Y%m%d')),
-                float(row[2]),
-                float(row[3]),
-                float(row[4]),
-                float(row[5]),
-                int(row[6])))
-        except Exception as error:
-            print("Insert into prices failed", error, row)
-            sys.exit(1)
 
     # Short data - see README.md for how that's obtained
     # The input CSV is in the form:
@@ -138,7 +112,9 @@ if __name__ == "__main__":
         'shorts/2014.csv' : '%d/%m/%Y',
         'shorts/2015.csv' : '%d/%m/%Y',
         'shorts/2016.csv' : '%Y-%m-%d',
-        'shorts/2017.csv' : '%Y-%m-%d'
+        'shorts/2017.csv' : '%Y-%m-%d',
+        'shorts/2018.csv' : '%Y-%m-%d',
+        'shorts/2019.csv' : '%Y-%m-%d'
     }
 
     # The ASX have some days with bad data
@@ -181,7 +157,11 @@ if __name__ == "__main__":
             # Header 2: Dates so build the date list
             elif reader.line_num == 2:
                 for date in row[2::2]: # Every second
-                    dt = time.mktime(time.strptime(date, fmt))
+                    try:
+                        dt = time.mktime(time.strptime(date, fmt))
+                    except Exception as e:
+                        print("Failed on:", date, fmt)
+                        print(e)
                     if not dt in baddates:
                         dates.append(dt)
                     else:
@@ -230,5 +210,31 @@ if __name__ == "__main__":
             except Exception as e:
                 pass
 
+    # Prices
+    try:
+        stockdb.CreateTablePrices(args.drop)
+    except sqlite3.OperationalError as error:
+        # table already exists
+        print("Database %s already exists, Use --drop to recreate" %(args.db,))
+        sys.exit(1)
+
+    # Price data - see README.md for how that's obtained
+    # The input CSV is in the form:
+    # symbol | date | open | high | low | close | volume
+    prices = 'prices/prices.csv'
+    print("Processing:", prices)
+    for row in csv.reader(open(prices, 'r')):
+        try:
+            c.execute('insert into prices values (?, ?, ?, ?, ?, ?, ?)',
+                (row[0].strip(),
+                time.mktime(time.strptime(row[1].strip(), '%Y%m%d')),
+                float(row[2]),
+                float(row[3]),
+                float(row[4]),
+                float(row[5]),
+                int(row[6])))
+        except Exception as error:
+            print("Insert into prices failed", error, row)
+            sys.exit(1)
     stockdb.commit()
     stockdb.close()
