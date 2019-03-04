@@ -31,7 +31,7 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 class StockForm(FlaskForm):
-    symbol = StringField('Enter symbol', validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
+    symbol = StringField('Enter symbol', default='SYM', validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<symbol>', methods=('GET', 'POST'))
@@ -87,20 +87,29 @@ def privacy():
     return render_template('privacy.html')
 
 @app.route('/images/<symbol>.png', methods=('GET',))
-def short_png(symbol=None):
+def graph1_png(symbol=None):
     if symbol == None:
         return # FIXME
-    fig = graph_symbol(symbol)
+    fig = graph1(symbol)
     output = io.BytesIO()
     FigureCanvas(fig).print_png(output)
     return Response(output.getvalue(), mimetype='image/png')
 
-def graph_symbol(symbol):
+@app.route('/images/<symbol>-adjusted.png', methods=('GET',))
+def graph2_png(symbol=None):
+    if symbol == None:
+        return # FIXME
+    fig = graph2(symbol)
+    output = io.BytesIO()
+    FigureCanvas(fig).print_png(output)
+    return Response(output.getvalue(), mimetype='image/png')
+
+def graph1(symbol):
     '''
     For each symbol we plot:
     * The symbol's closing price
     * The XAO scaled to that
-    * The short percentage (inverted for correlation)
+    * The short percentage
     '''
 
     c = stocks.cursor()
@@ -159,3 +168,57 @@ def scale(this, min_from, max_from, min_to, max_to):
     # e.g, 4000 is one third in  3000-6000 scaled between $7 and $9 should be 6.66
     proportion = (this - min_from) / (max_from - min_from)       # 0.5, .33
     return min_to + (max_to - min_to) * proportion               # 4, 7.66
+
+def graph2(symbol):
+    '''
+    For each symbol we plot:
+    * The symbol's closing price / the xao scaling for that period
+    * The short percentage (inverted for correlation)
+    '''
+
+    c = stocks.cursor()
+    c.execute('SELECT min(close), max(close) FROM prices where symbol = ?', (symbol,))
+    price_min, price_max = c.fetchone()
+
+    # Grab a figure
+    fig, ax = plt.subplots()
+    ax.set_xlabel("Date")
+
+    # XAO (used for scaling prices)
+    xao_values = []
+    c.execute('SELECT close FROM prices where symbol = "XAO" order by date asc')
+    data = c.fetchall()
+    for row in data:
+        xao_values.append(row[0])
+
+    # Prices (scaled to XAO and is our left axis label)
+    dates = []
+    values = []
+    c.execute('SELECT date, close FROM prices where symbol = ? order by date asc', (symbol,))
+    data = c.fetchall()
+    for i, row in enumerate(data):
+        if len(xao_values) > i:
+            dates.append(datetime.datetime.fromtimestamp(row[0]))
+            values.append(row[1] / (xao_values[i] / xao_values[0]))
+        
+    ax.plot_date(dates, values, '-', label="price (XAO adj)", lw=1)
+    ax.set_ylabel("Price (XAO adj)")
+
+    # Shorts (scaled to percentage, label on right)
+    dates = []
+    values = []
+    c.execute('SELECT date, short FROM shorts where symbol = ? order by date asc', (symbol,))
+    data = c.fetchall()
+    for row in data:
+        dates.append(datetime.datetime.fromtimestamp(row[0]))
+        values.append(scale(row[1], 0, 100, price_min, price_max))
+    ax.plot_date(dates, values, '-', label="short", lw=1)
+    # Add a parasitic scale to the right
+    par = ax.twinx()
+    par.set_ylabel("% Short")
+    par.set_ylim(0, 100)
+
+    # Legend
+    fig.legend(loc=2, fontsize='small')
+
+    return fig
