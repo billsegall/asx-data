@@ -130,11 +130,15 @@ def graph1(symbol):
     '''
 
     c = stocks.cursor()
-    c.execute('SELECT min(close), max(close) FROM prices where symbol = ?', (symbol,))
-    price_min, price_max = c.fetchone()
+    c.execute('SELECT min(date), max(date), min(close), max(close) FROM prices where symbol = ?', (symbol,))
+    price_date_min, price_date_max, price_min, price_max = c.fetchone()
 
-    c.execute('SELECT min(close), max(close) FROM prices where symbol = "XAO"')
-    xao_min, xao_max = c.fetchone()
+    c.execute('SELECT min(date), max(date), min(close), max(close) FROM prices where symbol = "XAO"')
+    xao_date_min, xao_date_max, xao_min, xao_max = c.fetchone()
+
+    # limit our date range by our data
+    date_min = max(price_date_min, xao_date_min)
+    date_max = min(price_date_max, xao_date_max)
 
     # Grab a figure
     fig, ax = plt.subplots()
@@ -143,7 +147,7 @@ def graph1(symbol):
     # Prices (allowed to scale naturally and is our left axis label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices where symbol = ? order by date asc', (symbol,))
+    c.execute('SELECT date, close FROM prices WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
@@ -154,7 +158,7 @@ def graph1(symbol):
     # XAO (scaled to price, no label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices where symbol = "XAO" order by date asc')
+    c.execute('SELECT date, close FROM prices where symbol = "XAO" AND date >= ? AND date <= ?  ORDER BY date ASC', (date_min, date_max))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
@@ -164,7 +168,7 @@ def graph1(symbol):
     # Shorts (scaled to percentage, label on right)
     dates = []
     values = []
-    c.execute('SELECT date, short FROM shorts where symbol = ? order by date asc', (symbol,))
+    c.execute('SELECT date, short FROM shorts WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
