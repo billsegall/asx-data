@@ -59,30 +59,27 @@ def index(symbol=None, description='Choose symbol'):
 def stock(symbol=None):
 
     form = StockForm()
-    print("1. symbol =", symbol)
 
     if symbol != None and form.validate_on_submit():
         description = 'invalid symbol'
         symbol = None
-        print("2. symbol =", symbol)
 
-    if request.method == 'POST':
-        print("POST")
+    #if request.method == 'POST':
+    #    print("POST")
 
     if symbol == None:
         symbol = request.form.get('symbol')
-        print("3. symbol =", symbol)
 
     if symbol == None:
         return render_template('/stock.html', symbol="", description="", form=form)
 
     symbol = symbol.upper()
-    print("4. symbol =", symbol)
     name, industry = stocks.LookupSymbol(symbol)
     if name != None:
         description = name + ' [' + industry + ']'
     else:
         description = "Unknown"
+
     return render_template('stock.html', symbol=symbol, description=description, form=form)
 
 

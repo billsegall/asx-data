@@ -10,9 +10,8 @@
             {{ form.csrf_token }}
             <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}
             <input type="submit" color="green", value="Submit">
-            {{ description }}
         </form>
-        {% if symbol != "" %}
+        {% if symbol != "" and description != "Unknown" %}
             <img src="/images/{{symbol}}.png" alt="graph">
             <img src="/images/{{symbol}}-adjusted.png" alt="graph">
         {% endif %}
