@@ -31,7 +31,8 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 class StockForm(FlaskForm):
-    symbol = StringField('Enter symbol', default='SYM', validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
+        default = ""
+        symbol = StringField('Symbol', default=default, validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<symbol>', methods=('GET', 'POST'))
@@ -46,24 +47,43 @@ def index(symbol=None, description='Choose symbol'):
         symbol = request.form.get('symbol')
 
     if symbol != None:
+        form.default = "XYZ"
         name, industry = stocks.LookupSymbol(symbol)
         if name != None:
             description = name + ' [' + industry + ']'
 
     return render_template('index.html', symbol=symbol, description=description, form=form)
 
-@app.route('/stock/<symbol>', methods=('GET',))
-def stock(symbol=None, name=None):
+@app.route('/stock', methods=('GET', 'POST'))
+@app.route('/stock/<symbol>', methods=('GET', 'POST'))
+def stock(symbol=None):
+
+    form = StockForm()
+    print("1. symbol =", symbol)
+
+    if symbol != None and form.validate_on_submit():
+        description = 'invalid symbol'
+        symbol = None
+        print("2. symbol =", symbol)
+
+    if request.method == 'POST':
+        print("POST")
+
     if symbol == None:
-        return render_template('index.html', symbol=symbol, name=name)
+        symbol = request.form.get('symbol')
+        print("3. symbol =", symbol)
+
+    if symbol == None:
+        return render_template('/stock.html', symbol="", description="", form=form)
 
     symbol = symbol.upper()
+    print("4. symbol =", symbol)
     name, industry = stocks.LookupSymbol(symbol)
     if name != None:
         description = name + ' [' + industry + ']'
     else:
         description = "Unknown"
-    return render_template('stock.html', symbol=symbol, description=description)
+    return render_template('stock.html', symbol=symbol, description=description, form=form)
 
 
 @app.context_processor

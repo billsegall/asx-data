@@ -1,13 +1,21 @@
 <!DOCTYPE html>
     <head>
-        <title>ASX:{{ticker}}</title>
+        <title>ASX:{{symbol}}</title>
         <link rel="stylesheet" href='../static/style.css'/>
     </head>
 
     <body>
         <p><b>ASX:{{symbol}}</b> {{description}}<p>
-        <img src="/images/{{symbol}}.png" alt="graph">
-        <img src="/images/{{symbol}}-adjusted.png" alt="graph">
+        <form method="POST" action="/stock">
+            {{ form.csrf_token }}
+            <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}
+            <input type="submit" color="green", value="Submit">
+            {{ description }}
+        </form>
+        {% if symbol != "" %}
+            <img src="/images/{{symbol}}.png" alt="graph">
+            <img src="/images/{{symbol}}-adjusted.png" alt="graph">
+        {% endif %}
     </body>
 
 {% include "footer.html" %}
