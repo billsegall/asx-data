@@ -23,7 +23,18 @@ app.config.update(
     DATABASE = '../stockdb/stockdb.db'
 )
 
+# Utility functions
+def date2human(date):
+    t = datetime.datetime.fromtimestamp(date)
+    return t.strftime('%d/%m/%Y')
+
+# Open our database and grab some useful info from it
 stocks = stockdb.StockDB(app.config['DATABASE'])
+c = stocks.cursor()
+c.execute('SELECT min(date), max(date) FROM prices where symbol = "XAO"')
+xao_date_min, xao_date_max, = c.fetchone()
+default_date_min = date2human(xao_date_min)
+default_date_max = date2human(xao_date_max)
 
 @app.route('/favicon.ico')
 def favicon():
@@ -31,8 +42,9 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 class StockForm(FlaskForm):
-        default = ""
-        symbol = StringField('Symbol', default=default, validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
+        symbol = StringField('Symbol', default="", validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
+        start = StringField('From', default=default_date_min, validators=[validators.DataRequired()])
+        end = StringField('To', default=default_date_max, validators=[validators.DataRequired()])
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<symbol>', methods=('GET', 'POST'))
@@ -133,8 +145,8 @@ def graph1(symbol):
     c.execute('SELECT min(date), max(date), min(close), max(close) FROM prices where symbol = ?', (symbol,))
     price_date_min, price_date_max, price_min, price_max = c.fetchone()
 
-    c.execute('SELECT min(date), max(date), min(close), max(close) FROM prices where symbol = "XAO"')
-    xao_date_min, xao_date_max, xao_min, xao_max = c.fetchone()
+    c.execute('SELECT min(close), max(close) FROM prices where symbol = "XAO"')
+    xao_min, xao_max = c.fetchone()
 
     # limit our date range by our data
     date_min = max(price_date_min, xao_date_min)

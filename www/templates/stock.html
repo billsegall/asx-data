@@ -7,8 +7,10 @@
     <body>
         <p><b>ASX:{{symbol}}</b> {{description}}<p>
         <form method="POST" action="/stock">
-            {{ form.csrf_token }}
-            <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}
+            {{form.csrf_token}}
+            <b>{{form.symbol.label}}</b> {{form.symbol(size=6)}}
+            <b>{{form.start.label}}</b> {{form.start(size=8)}}
+            <b>{{form.end.label}}</b> {{form.end(size=8)}}
             <input type="submit" color="green", value="Submit">
         </form>
         {% if symbol != "" and description != "Unknown" %}
