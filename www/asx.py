@@ -10,6 +10,10 @@ import atexit, datetime, io, math, os, random, sqlite3, time
 from flask import Flask, Response, g, request, render_template, send_from_directory
 from flask_wtf import FlaskForm
 from wtforms import StringField, validators
+
+import matplotlib
+matplotlib.use('Agg') # Don't require an X Server
+
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
