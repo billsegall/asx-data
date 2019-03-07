@@ -23,10 +23,12 @@ app.config.update(
     DATABASE = '../stockdb/stockdb.db'
 )
 
-# Utility functions
+## Utility functions
+
+# Not very human, will ultimately need internationalization
 def date2human(date):
     t = datetime.datetime.fromtimestamp(date)
-    return t.strftime('%d/%m/%Y')
+    return t.strftime('%Y%m%d')
 
 # Open our database and grab some useful info from it
 stocks = stockdb.StockDB(app.config['DATABASE'])
@@ -68,7 +70,7 @@ def index(symbol=None, description='Choose symbol'):
 
 @app.route('/stock', methods=('GET', 'POST'))
 @app.route('/stock/<symbol>', methods=('GET', 'POST'))
-def stock(symbol=None):
+def stock(symbol=None, start=None, end=None):
 
     form = StockForm()
 
@@ -83,17 +85,36 @@ def stock(symbol=None):
         symbol = request.form.get('symbol')
 
     if symbol == None:
-        return render_template('/stock.html', symbol="", description="", form=form)
-
-    symbol = symbol.upper()
-    name, industry = stocks.LookupSymbol(symbol)
-    if name != None:
-        description = name + ' [' + industry + ']'
+        symbol=""
+        description=""
     else:
-        description = "Unknown"
+        symbol = symbol.upper()
+        name, industry = stocks.LookupSymbol(symbol)
+        if name != None:
+            description = name + ' [' + industry + ']'
+        else:
+            description = "Unknown"
 
-    return render_template('stock.html', symbol=symbol, description=description, form=form)
+    if start == None:
+        start = request.form.get('start')
+        # check that's sane
+        try:
+            dt = time.mktime(time.strptime(start, '%Y%m%d'))
+        except:
+            print("Bad start date:", start)
+            start = default_date_min
 
+    if end == None:
+        end = request.form.get('end')
+        # check that's sane
+        try:
+            dt = time.mktime(time.strptime(end, '%Y%m%d'))
+        except:
+            print("Bad end date:", end)
+            end = default_date_max
+
+    # Url args
+    return render_template('stock.html', symbol=symbol, start=start, end=end, description=description, form=form)
 
 @app.context_processor
 def utility_processor():
@@ -119,7 +140,9 @@ def privacy():
 def graph1_png(symbol=None):
     if symbol == None:
         return # FIXME
-    fig = graph1(symbol)
+    start = request.args.get('start') 
+    end = request.args.get('end') 
+    fig = graph1(symbol, start, end)
     output = io.BytesIO()
     FigureCanvas(fig).print_png(output)
     return Response(output.getvalue(), mimetype='image/png')
@@ -133,7 +156,7 @@ def graph2_png(symbol=None):
     FigureCanvas(fig).print_png(output)
     return Response(output.getvalue(), mimetype='image/png')
 
-def graph1(symbol):
+def graph1(symbol, start=None, end=None):
     '''
     For each symbol we plot:
     * The symbol's closing price
@@ -141,16 +164,33 @@ def graph1(symbol):
     * The short percentage
     '''
 
+    if start != None:
+        try:
+            user_date_min = time.mktime(time.strptime(start, '%Y%m%d'))
+        except:
+            user_date_min = 0
+
+    if end != None:
+        try:
+            user_date_max = time.mktime(time.strptime(end, '%Y%m%d'))
+        except:
+            user_date_max = round(time.time())
+
+    # Find the date range available for this symbol
     c = stocks.cursor()
-    c.execute('SELECT min(date), max(date), min(close), max(close) FROM prices where symbol = ?', (symbol,))
-    price_date_min, price_date_max, price_min, price_max = c.fetchone()
+    c.execute('SELECT min(date), max(date) FROM prices WHERE symbol = ?', (symbol,))
+    price_date_min, price_date_max = c.fetchone()
 
-    c.execute('SELECT min(close), max(close) FROM prices where symbol = "XAO"')
+    # limit date range by data availabity (index, symbol) and user selection
+    date_min = max(price_date_min, xao_date_min, user_date_min)
+    date_max = min(price_date_max, xao_date_max, user_date_max)
+
+    # So now we want our maxima and minima for our two axes: price and index
+    c.execute('SELECT min(close), max(close) FROM prices WHERE symbol = ? AND date >= ? AND date <= ?', (symbol, date_min, date_max))
+    price_min, price_max = c.fetchone()
+
+    c.execute('SELECT min(close), max(close) FROM prices WHERE symbol = "XAO" AND date >= ? AND date <= ?', (date_min, date_max))
     xao_min, xao_max = c.fetchone()
-
-    # limit our date range by our data
-    date_min = max(price_date_min, xao_date_min)
-    date_max = min(price_date_max, xao_date_max)
 
     # Grab a figure
     fig, ax = plt.subplots()
@@ -179,7 +219,11 @@ def graph1(symbol):
 
     # Shorts (scaled to percentage, label on right)
     c.execute('SELECT max(short) FROM shorts WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
-    short_max = round(c.fetchone()[0] + 0.5)
+    tmp = c.fetchone()[0]
+    if tmp == None: # No short data
+        short_max = 100
+    else:
+        short_max = round(tmp + 0.5)
 
     dates = []
     values = []
@@ -256,5 +300,6 @@ def graph2(symbol):
 
     # Legend
     fig.legend(loc=2, fontsize='small')
+
 
     return fig
