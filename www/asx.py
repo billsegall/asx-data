@@ -178,18 +178,21 @@ def graph1(symbol):
     ax.plot_date(dates, values, '-', label="XAO", lw=1)
 
     # Shorts (scaled to percentage, label on right)
+    c.execute('SELECT max(short) FROM shorts WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
+    short_max = round(c.fetchone()[0] + 0.5)
+
     dates = []
     values = []
     c.execute('SELECT date, short FROM shorts WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
-        values.append(scale(row[1], 0, 100, price_min, price_max))
+        values.append(scale(row[1], 0, short_max, price_min, price_max))
     ax.plot_date(dates, values, '-', label="short", lw=1)
     # Add a parasitic scale to the right
     par = ax.twinx()
     par.set_ylabel("% Short")
-    par.set_ylim(0, 100)
+    par.set_ylim(0, short_max)
 
     # Legend
     fig.legend(loc=2, fontsize='small')
