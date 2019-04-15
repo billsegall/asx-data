@@ -99,23 +99,28 @@ def stock(symbol=None, start=None, end=None):
         else:
             description = "Unknown"
 
+    # Get sensible start and end dates
     if start == None:
         start = request.form.get('start')
-        # check that's sane
-        try:
-            dt = time.mktime(time.strptime(start, '%Y%m%d'))
-        except:
-            print("Bad start date:", start)
+        if start == None:
             start = default_date_min
+        else:
+            try:
+                dt = time.mktime(time.strptime(start, '%Y%m%d'))
+            except:
+                print("Bad start date:", start)
+                start = default_date_min
 
-    if end == None:
-        end = request.form.get('end')
-        # check that's sane
-        try:
-            dt = time.mktime(time.strptime(end, '%Y%m%d'))
-        except:
-            print("Bad end date:", end)
-            end = default_date_max
+        if end == None:
+            end = request.form.get('end')
+            if end == None:
+                end = default_date_max
+            else:
+                try:
+                    dt = time.mktime(time.strptime(end, '%Y%m%d'))
+                except:
+                    print("Bad end date:", end)
+                    end = default_date_max
 
     # Url args
     return render_template('stock.html', symbol=symbol, start=start, end=end, description=description, form=form)
