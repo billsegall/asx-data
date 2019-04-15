@@ -240,6 +240,8 @@ def graph1(symbol, start=None, end=None):
     # Add a parasitic scale to the right
     par = ax.twinx()
     par.set_ylabel("% Short")
+    if short_max < 1:
+        short_max = 1
     par.set_ylim(0, short_max)
 
     # Legend
@@ -249,9 +251,13 @@ def graph1(symbol, start=None, end=None):
 
 def scale(this, min_from, max_from, min_to, max_to):
     # e.g, 4500 is half in       3000-6000 scaled between $3 and $5 should be 4
-    # e.g, 4000 is one third in  3000-6000 scaled between $7 and $9 should be 6.66
-    proportion = (this - min_from) / (max_from - min_from)       # 0.5, .33
-    return min_to + (max_to - min_to) * proportion               # 4, 7.66
+    # e.g, 4000 is one third in  3000-6000 scaled between $7 and $9 should be 7.66
+    # e.g, 4000 is one third in  3000-6000 scaled between $1 and $1 should be 1.00
+    if max_from == min_from:
+        proportion = 1
+    else:
+        proportion = (this - min_from) / (max_from - min_from)   # 0.5, .33, 1
+    return min_to + (max_to - min_to) * proportion               # 4, 7.66, 1
 
 def graph2(symbol):
     '''
@@ -267,6 +273,11 @@ def graph2(symbol):
     # Grab a figure
     fig, ax = plt.subplots()
     ax.set_xlabel("Date")
+
+    # Stop the dates overlapping
+    #ax.xticks(rotation=45)
+    #fig.autofmt_xdate()
+    #plt.tick_params(labelsize=12)
 
     # XAO (used for scaling prices)
     xao_values = []
