@@ -5,7 +5,8 @@
     </head>
 
     <body>
-        <p>View list of <a href="/shorts">short stocks</a></p>
+        <p>View list of <a href="/shorts-now">current short stocks</a></p>
+        <p>View list of <a href="/shorts-historical">historical short stocks</a></p>
         <form method="POST" action="/">
             {{ form.csrf_token }}
             <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}

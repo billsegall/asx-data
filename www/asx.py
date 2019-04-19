@@ -41,6 +41,7 @@ c.execute('SELECT min(date), max(date) FROM prices where symbol = "XAO"')
 xao_date_min, xao_date_max, = c.fetchone()
 default_date_min = date2human(xao_date_min)
 default_date_max = date2human(xao_date_max)
+print("xao_date_max:", xao_date_max)
 
 @app.route('/favicon.ico')
 def favicon():
@@ -132,14 +133,23 @@ def utility_processor():
         return t.strftime('%d/%m/%Y')
     return dict(date2human=date2human)
 
-@app.route('/shorts', methods=('GET', 'POST'))
-def shorts():
+@app.route('/shorts-historical', methods=('GET', 'POST'))
+def shorts_historical():
     c = stocks.cursor()
     c.row_factory = sqlite3.Row
     c.execute('select symbol, date, max(short) from shorts where length(symbol) = 3 group by symbol order by short desc')
     #print(c.description)
     rows = c.fetchall()
-    return render_template('shorts.html', rows=rows)
+    return render_template('shorts-historical.html', rows=rows)
+
+@app.route('/shorts-now', methods=('GET', 'POST'))
+def shorts_now():
+    c = stocks.cursor()
+    c.row_factory = sqlite3.Row
+    c.execute('select symbol, max(date), short from shorts where length(symbol) = 3 group by symbol order by date desc, short desc')
+    #print(c.description)
+    rows = c.fetchall()
+    return render_template('shorts-now.html', rows=rows)
 
 @app.route('/privacy')
 def privacy():
