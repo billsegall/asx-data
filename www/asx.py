@@ -39,7 +39,7 @@ stocks = stockdb.StockDB(app.config['DATABASE'])
 c = stocks.cursor()
 c.execute('SELECT min(date), max(date) FROM prices where symbol = "XAO"')
 xao_date_min, xao_date_max, = c.fetchone()
-default_date_min = date2human(xao_date_min)
+default_date_min = date2human(xao_date_max - 365 * 24 * 60 * 60) # One year
 default_date_max = date2human(xao_date_max)
 print("xao_date_max:", xao_date_max)
 
