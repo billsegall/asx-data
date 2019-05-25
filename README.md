@@ -7,7 +7,7 @@ The **raw** short data was obtained from
 [ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-position-reports-table/), and
 contains some [inaccuracies](https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/).
 
-These were then massaged a little. See the Makefile for how they're then put
+These were then massaged a little (ascii/latin, trailing comma on dates). See the Makefile for how they're then put
 into the database.
 
 ## ASX price and symbol data
