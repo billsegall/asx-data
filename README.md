@@ -26,9 +26,9 @@ Symbol data can be obtained from [ASXlistedcompanies](https://www.asxlistedcompa
 The database consists of three tables described below by example:
 
 ### symbols
-symbol | name | industry
------- | ---- | ---
-BHP    | BHP BILLITON LIMITED ORDINARY | Materials
+symbol | name | industry | mcap
+------ | ---- | --- | ---
+BHP    | BHP BILLITON LIMITED ORDINARY | Materials | 108,172,000,000 
 
 ### shorts
 symbol | date | short
