@@ -7,11 +7,11 @@
     <body>
         <p>View list of <a href="/shorts-now">current short stocks</a></p>
         <p>View list of <a href="/shorts-historical">historical short stocks</a></p>
-        <form method="POST" action="/">
+        <form method="POST" action="/stock">
+            <p>View individual stock
             {{ form.csrf_token }}
             <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}
-            <input type="submit" color="green", value="Submit">
-            {{ description }}
+            <input type="submit" color="green", value="Submit"><p>
         </form>
     </body>
 

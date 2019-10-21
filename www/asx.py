@@ -18,6 +18,10 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
+# To change default form value after instantiation.
+# There really should be a better way.
+from werkzeug.datastructures import MultiDict
+
 app = Flask(__name__)
 
 # Application config
@@ -41,6 +45,10 @@ c.execute('SELECT min(date), max(date) FROM prices where symbol = "XAO"')
 xao_date_min, xao_date_max, = c.fetchone()
 default_date_min = date2human(xao_date_max - 365 * 24 * 60 * 60) # One year
 default_date_max = date2human(xao_date_max)
+print("Data available from %s to %s" %(date2human(xao_date_min), date2human(xao_date_max)))
+
+# Default form data fields done as multidict so it can be updated
+formdata = MultiDict({'symbol' : "", 'min' : default_date_min, 'max' : default_date_max, 'desc' : 'Choose Symbol'})
 
 @app.route('/favicon.ico')
 def favicon():
@@ -48,39 +56,39 @@ def favicon():
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 class StockForm(FlaskForm):
-        symbol = StringField('Symbol', default="", validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
-        start = StringField('From', default=default_date_min, validators=[validators.DataRequired()])
-        end = StringField('To', default=default_date_max, validators=[validators.DataRequired()])
+        symbol = StringField('Symbol', default=formdata['symbol'], validators=[validators.DataRequired(), validators.Length(min=3, max=5)])
+        start = StringField('From', default=formdata['min'], validators=[validators.DataRequired()])
+        end = StringField('To', default=formdata['max'], validators=[validators.DataRequired()])
 
 @app.route('/', methods=('GET', 'POST'))
 @app.route('/<symbol>', methods=('GET', 'POST'))
-def index(symbol=None, description='Choose symbol'):
+def index(symbol=None):
     form = StockForm()
 
     if not form.validate_on_submit():
-        description = 'Invalid symbol'
+        description = 'validate failed'
         symbol = None
 
     if request.method == 'POST':
         symbol = request.form.get('symbol')
 
     if symbol != None:
-        form.default = "XYZ"
         name, industry = stocks.LookupSymbol(symbol)
         if name != None:
             description = name + ' [' + industry + ']'
 
-    return render_template('index.html', symbol=symbol, description=description, form=form)
+    formdata['symbol'] = symbol
+    formdata['desc'] = description
+    return render_template('index.html', formdata=formdata, form=form)
 
 @app.route('/stock', methods=('GET', 'POST'))
 @app.route('/stock/<symbol>', methods=('GET', 'POST'))
 def stock(symbol=None, start=None, end=None):
 
-    form = StockForm()
 
-    if symbol != None and form.validate_on_submit():
-        description = 'invalid symbol'
-        symbol = None
+    #if symbol != None and form.validate_on_submit():
+        #description = 'invalid symbol'
+        #symbol = None
 
     #if request.method == 'POST':
     #    print("POST")
@@ -99,31 +107,34 @@ def stock(symbol=None, start=None, end=None):
         else:
             description = "Unknown"
 
+    formdata['symbol'] = symbol
+
     # Get sensible start and end dates
     if start == None:
         start = request.form.get('start')
         if start == None:
-            start = default_date_min
+            start = formdata['min']
         else:
             try:
                 dt = time.mktime(time.strptime(start, '%Y%m%d'))
             except:
                 print("Bad start date:", start)
-                start = default_date_min
+                start = formdata['min']
 
         if end == None:
             end = request.form.get('end')
             if end == None:
-                end = default_date_max
+                end = formdata['max']
             else:
                 try:
                     dt = time.mktime(time.strptime(end, '%Y%m%d'))
                 except:
                     print("Bad end date:", end)
-                    end = default_date_max
+                    end = formdata['max']
 
     # Url args
-    return render_template('stock.html', symbol=symbol, start=start, end=end, description=description, form=form)
+    form = StockForm()
+    return render_template('stock.html', formdata=formdata, symbol=symbol, start=start, end=end, description=description, form=form)
 
 @app.context_processor
 def utility_processor():

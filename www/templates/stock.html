@@ -5,7 +5,7 @@
     </head>
 
     <body>
-        <p><b>ASX:{{symbol}}</b> {{description}}<p>
+        <p><b>ASX:{{symbol}}</b> {{description}} {{formdata['min']}}<p>
         <form method="POST" action="/stock">
             {{form.csrf_token}}
             <b>{{form.symbol.label}}</b> {{form.symbol(size=6)}}
