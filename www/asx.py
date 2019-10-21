@@ -38,6 +38,13 @@ def date2human(date):
     t = datetime.datetime.fromtimestamp(date)
     return t.strftime('%Y%m%d')
 
+
+def millify(n):
+    millnames = ['',' Thousand',' Million',' Billion',' Trillion']
+    n = float(n)
+    millidx = max(0,min(len(millnames)-1, int(math.floor(0 if n == 0 else math.log10(abs(n))/3))))
+    return '{:.0f}{}'.format(n / 10**(3 * millidx), millnames[millidx])
+
 def symbolinfo(symbol):
     if symbol == None:
         return "NULL Symbol"
@@ -46,7 +53,7 @@ def symbolinfo(symbol):
     if name == None:
         return "Symbol lookup failed"
     else:
-        return name + ' [' + industry + ']' + ' $' + str(round(mcap))
+        return name + ', Industry: ' + industry + ', Market Cap: $' + millify(mcap)
 
 # Open our database and grab some useful info from it
 stocks = stockdb.StockDB(app.config['DATABASE'])
