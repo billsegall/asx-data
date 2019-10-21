@@ -2,7 +2,7 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import argparse, csv, sqlite3, time, sys
+import argparse, csv, locale, sqlite3, time, sys
 
 class StockDB:
     '''The ASX Stock Database'''
@@ -31,7 +31,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table symbols (symbol text primary key, name text, industry text, mcap text)')
+        c.execute('create table symbols (symbol text primary key, name text, industry text, mcap real)')
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -82,6 +82,8 @@ if __name__ == "__main__":
     # Symbol data - see README.md for how that's obtained
     # The input has CSV has two header rows and is then in the form:
     # Code,Company,Sector,Market Cap,Weight(%),,Total Index Market Cap,
+    # Market Cap is strings of the form 123,456 so we need get ints from that
+    locale.setlocale( locale.LC_ALL, 'en_US.UTF-8')
     symbols = 'symbols/ASXListedCompanies.csv'
     print("Processing:", symbols)
     reader = csv.reader(open(symbols, 'r'))
@@ -89,7 +91,7 @@ if __name__ == "__main__":
         if reader.line_num >= 4: # There is no row 0
             try:
                 c.execute('insert into symbols values (?, ?, ?, ?)',
-                    (row[0].strip(), row[1].strip(), row[2].strip(), row[3].strip()))
+                    (row[0].strip(), row[1].strip(), row[2].strip(), locale.atof(row[3].strip())))
             except Exception as error:
                 print("Insert into symbols failed", error, row)
                 sys.exit(1)
@@ -206,7 +208,7 @@ if __name__ == "__main__":
             # Some symbols will be delisted and not in our symbol list so add
             # what we can ignoring errors
             try:
-                c.execute('insert into symbols values (?, ?, "Delisted", "")', (k, v[0]))
+                c.execute('insert into symbols values (?, ?, "Delisted", 0)', (k, v[0]))
             except Exception as e:
                 pass
 

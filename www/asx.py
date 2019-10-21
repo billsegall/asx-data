@@ -38,6 +38,16 @@ def date2human(date):
     t = datetime.datetime.fromtimestamp(date)
     return t.strftime('%Y%m%d')
 
+def symbolinfo(symbol):
+    if symbol == None:
+        return "NULL Symbol"
+
+    name, industry, mcap = stocks.LookupSymbol(symbol)
+    if name == None:
+        return "Symbol lookup failed"
+    else:
+        return name + ' [' + industry + ']' + ' $' + str(round(mcap))
+
 # Open our database and grab some useful info from it
 stocks = stockdb.StockDB(app.config['DATABASE'])
 c = stocks.cursor()
@@ -72,13 +82,8 @@ def index(symbol=None):
     if request.method == 'POST':
         symbol = request.form.get('symbol')
 
-    if symbol != None:
-        name, industry, mcap = stocks.LookupSymbol(symbol)
-        if name != None:
-            description = name + ' [' + industry + ']' + ' $' + mcap
-
     formdata['symbol'] = symbol
-    formdata['desc'] = description
+    formdata['desc'] = symbolinfo(symbol)
 
     return render_template('index.html', formdata=formdata, form=form)
 
@@ -99,16 +104,12 @@ def stock(symbol=None, start=None, end=None):
 
     if symbol == None:
         symbol=""
-        description=""
     else:
         symbol = symbol.upper()
-        name, industry, mcap = stocks.LookupSymbol(symbol)
-        if name != None:
-            description = name + ' [' + industry + ']' + ' $' + mcap
-        else:
-            description = "Unknown"
+        description = symbolinfo(symbol)
 
     formdata['symbol'] = symbol
+    formdata['description'] = description
 
     # Get sensible start and end dates
     if start == None:
