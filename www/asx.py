@@ -73,12 +73,13 @@ def index(symbol=None):
         symbol = request.form.get('symbol')
 
     if symbol != None:
-        name, industry = stocks.LookupSymbol(symbol)
+        name, industry, mcap = stocks.LookupSymbol(symbol)
         if name != None:
-            description = name + ' [' + industry + ']'
+            description = name + ' [' + industry + ']' + ' $' + mcap
 
     formdata['symbol'] = symbol
     formdata['desc'] = description
+
     return render_template('index.html', formdata=formdata, form=form)
 
 @app.route('/stock', methods=('GET', 'POST'))
@@ -101,9 +102,9 @@ def stock(symbol=None, start=None, end=None):
         description=""
     else:
         symbol = symbol.upper()
-        name, industry = stocks.LookupSymbol(symbol)
+        name, industry, mcap = stocks.LookupSymbol(symbol)
         if name != None:
-            description = name + ' [' + industry + ']'
+            description = name + ' [' + industry + ']' + ' $' + mcap
         else:
             description = "Unknown"
 

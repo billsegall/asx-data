@@ -31,7 +31,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table symbols (symbol text primary key, name text, industry text)')
+        c.execute('create table symbols (symbol text primary key, name text, industry text, mcap text)')
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -53,11 +53,11 @@ class StockDB:
     def LookupSymbol(self, symbol):
         c = self.db.cursor()
         try:
-            name, industry = c.execute('select name,industry from symbols where symbol = ?', (symbol,)).fetchone()
+            name, industry, mcap = c.execute('select name,industry,mcap from symbols where symbol = ?', (symbol,)).fetchone()
         except Exception as e:
             print(e)
             return (None, None)
-        return (name, industry)
+        return (name, industry, mcap)
 
 
 # When run we populate our database which requires some
@@ -80,16 +80,16 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Symbol data - see README.md for how that's obtained
-    # The input has CSV has three header rows and is then in the form:
-    # name | symbol | industry
+    # The input has CSV has two header rows and is then in the form:
+    # Code,Company,Sector,Market Cap,Weight(%),,Total Index Market Cap,
     symbols = 'symbols/ASXListedCompanies.csv'
     print("Processing:", symbols)
     reader = csv.reader(open(symbols, 'r'))
     for row in reader:
         if reader.line_num >= 4: # There is no row 0
             try:
-                c.execute('insert into symbols values (?, ?, ?)',
-                    (row[1].strip(), row[0].strip(), row[2].strip()))
+                c.execute('insert into symbols values (?, ?, ?, ?)',
+                    (row[0].strip(), row[1].strip(), row[2].strip(), row[3].strip()))
             except Exception as error:
                 print("Insert into symbols failed", error, row)
                 sys.exit(1)
@@ -206,7 +206,7 @@ if __name__ == "__main__":
             # Some symbols will be delisted and not in our symbol list so add
             # what we can ignoring errors
             try:
-                c.execute('insert into symbols values (?, ?, "Delisted")', (k, v[0]))
+                c.execute('insert into symbols values (?, ?, "Delisted", "")', (k, v[0]))
             except Exception as e:
                 pass
 

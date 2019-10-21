@@ -19,6 +19,8 @@ database.
 
 Note that the raw data does **not** cater for splits and dividends.
 
+Symbol data can be obtained from [ASXlistedcompanies](https://www.asxlistedcompanies.com/)
+
 ## The database
 
 The database consists of three tables described below by example:
