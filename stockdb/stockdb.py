@@ -56,7 +56,7 @@ class StockDB:
             name, industry, mcap = c.execute('select name,industry,mcap from symbols where symbol = ?', (symbol,)).fetchone()
         except Exception as e:
             print(e)
-            return (None, None)
+            return (None, None, None)
         return (name, industry, mcap)
 
 
