@@ -2,7 +2,8 @@
 # Copyright (c) 2019, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import argparse, csv, locale, sqlite3, time, sys
+import argparse, csv, locale, sqlite3, time, sys, cProfile, pstats, re
+PROFILE=False
 
 class StockDB:
     '''The ASX Stock Database'''
@@ -69,12 +70,15 @@ if __name__ == "__main__":
     parser.set_defaults(drop=False)
     args = parser.parse_args()
 
+    if PROFILE:
+        cProfile.run('re.compile("foo|bar")')
+
     stockdb = StockDB(args.db)  
     c = stockdb.cursor()
 
     # Symbols
     try:
-        stockdb.CreateTableSymbols(False)
+        stockdb.CreateTableSymbols(args.drop)
     except sqlite3.OperationalError as error:
         print("Database symbols already exists, Use --drop to recreate")
         sys.exit(1)
@@ -133,7 +137,7 @@ if __name__ == "__main__":
 
     # table shorts: symbol -> (date, short) mappings
     try:
-        stockdb.CreateTableShorts(False)
+        stockdb.CreateTableShorts(args.drop)
     except sqlite3.OperationalError as error:
         print("Database shorts already exists, Use --drop to recreate")
         sys.exit(1)
@@ -240,3 +244,7 @@ if __name__ == "__main__":
             sys.exit(1)
     stockdb.commit()
     stockdb.close()
+
+    if PROFILE:
+        p = pstats.Stats()
+        p.strip_dirs().sort_stats(-1).print_stats()
