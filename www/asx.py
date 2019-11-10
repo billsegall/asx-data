@@ -46,10 +46,11 @@ def millify(n):
     return '{:.0f}{}'.format(n / 10**(3 * millidx), millnames[millidx])
 
 def symbolinfo(symbol):
-    if symbol == None:
+    if symbol == None or len(symbol) == 0:
         return "NULL Symbol"
 
     name, industry, mcap = stocks.LookupSymbol(symbol)
+    #print(name, industry, mcap)
     if name == None:
         return "Symbol lookup failed"
     else:
@@ -87,7 +88,7 @@ def index(symbol=None):
         symbol = None
 
     if request.method == 'POST':
-        symbol = request.form.get('symbol')
+        symbol = request.form.get('symbol').strip()
 
     formdata['symbol'] = symbol
     formdata['desc'] = symbolinfo(symbol)
@@ -107,12 +108,12 @@ def stock(symbol=None, start=None, end=None):
     #    print("POST")
 
     if symbol == None:
-        symbol = request.form.get('symbol')
+        symbol = request.form.get('symbol').strip()
 
     if symbol == None:
         symbol=""
     else:
-        symbol = symbol.upper()
+        symbol = symbol.strip().upper()
         description = symbolinfo(symbol)
 
     formdata['symbol'] = symbol
