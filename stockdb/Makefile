@@ -13,4 +13,5 @@ prices/prices.csv:
 
 $(DB): $(SHORTS_CSV) stockdb.py prices/prices.csv symbols/ASXListedCompanies.csv
 	rm -f $(DB)
-	stockdb.py  --db $@ 
+	stockdb.py  --db .$@
+	mv .$@ $@
