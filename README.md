@@ -1,7 +1,7 @@
-# asx-shorts
-ASX short lists processing
+# asx-data
+ASX data and processing
 
-## ASX Short data
+## ASX short data
 
 The **raw** short data was obtained from
 [ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-position-reports-table/), and
@@ -10,7 +10,7 @@ contains some [inaccuracies](https://asic.gov.au/regulatory-resources/markets/sh
 These were then massaged a little (ascii/latin, trailing comma on dates). See the Makefile for how they're then put
 into the database.
 
-## ASX price and symbol data
+## ASX price data
 
 The **raw** price and symbol data was obtained from
 [ASX Historical Data](https://www.asxhistoricaldata.com/archive/) and flattened
@@ -18,6 +18,8 @@ and renamed for consistency. See the Makefile for how that's put into the
 database.
 
 Note that the raw data does **not** cater for splits and dividends.
+
+## ASX symbol data
 
 Symbol data can be obtained from [ASXlistedcompanies](https://www.asxlistedcompanies.com/)
 
