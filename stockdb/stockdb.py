@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-# Copyright (c) 2019, Bill Segall
+# Copyright (c) 2019-2021, Bill Segall
 # All rights reserved. See LICENSE for details.
 
 import argparse, csv, locale, sqlite3, time, sys, cProfile, pstats, re
@@ -128,7 +128,8 @@ if __name__ == "__main__":
         'shorts/2016.csv' : '%Y-%m-%d',
         'shorts/2017.csv' : '%Y-%m-%d',
         'shorts/2018.csv' : '%Y-%m-%d',
-        'shorts/2019.csv' : '%Y-%m-%d'
+        'shorts/2019.csv' : '%Y-%m-%d',
+        'shorts/2020.csv' : '%d/%m/%Y'
     }
 
     # The ASX have some days with bad data
