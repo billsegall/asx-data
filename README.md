@@ -4,18 +4,20 @@ ASX data and processing
 ## ASX short data
 
 The **raw** short data was obtained from
-[ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-position-reports-table/), and
-contains some [inaccuracies](https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/).
+[ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-position-reports-table/),
+and contains some
+[inaccuracies](https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/).
 
-These were then massaged a little (ascii/latin, trailing comma on dates). See the Makefile for how they're then put
-into the database.
+These were then massaged a little (ascii/latin, trailing comma on
+dates). See the Makefile for how they're then put into the database.
 
 ## ASX price data
 
-The **raw** price and symbol data was obtained from
-[ASX Historical Data](https://www.asxhistoricaldata.com/archive/) and flattened
-and renamed for consistency. See the Makefile for how that's put into the
-database.
+The **raw** price and symbol data was obtained from [ASX Historical
+Data](https://www.asxhistoricaldata.com/archive/) and flattened and
+renamed for consistency. See the Makefile for how that's put into the
+database. To add a new year you'll need to specify the date formats
+that seem to change most years.
 
 Note that the raw data does **not** cater for splits and dividends.
 
