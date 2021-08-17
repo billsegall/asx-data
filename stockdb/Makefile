@@ -16,19 +16,16 @@ $(DB): $(SHORTS_CSV) stockdb.py prices/prices.csv symbols/ASXListedCompanies.csv
 	stockdb.py  --db .$@
 	mv .$@ $@
 
-curve_inputs: curve/prices.csv curve/symbols.csv curve/shorts.csv
+YEARS=10 11 12 13 14 15 16 17 18 19
+MONTHS=01 02 03 04 05 06 07 08 09 10 11 12
+.PHONY: prices/eom.csv
+prices/eom.csv:
+	for year in $(YEARS); do for month in $(MONTHS); do \
+		ls -1 prices/raw/20$$year$$month??.txt | tail -1; \
+	done; done | while read eom; do \
+		cat $$eom >> $@; \
+	done
 
-curve:
-	mkdir -p curve
-
-curve/prices.csv: prices/prices.csv curve
-	echo "symbol,date,open,high,low,close,volume" > $@
-	cat $< >> $@
-
-curve/symbols.csv: symbols/ASXListedCompanies.csv curve
-	echo "symbol,company,sector,mcap,weight,A,imcap,B" > $@
-	tail +3 $< >> $@
-
-curve/shorts.csv: shorts/shorts.csv
-	echo "Code,Company,Sector,MarketCap,Weight,A,IndexMarketCap,B" > $@
-	tail +3 $< >> $@
+$(DB): $(SHORTS_CSV) stockdb.py prices/prices.csv prices/eom.csv symbols/ASXListedCompanies.csv
+	rm -f $(DB)
+	stockdb.py  --db $@ 
