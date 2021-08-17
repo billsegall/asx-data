@@ -51,6 +51,14 @@ class StockDB:
         c.execute('create table prices (symbol text, date datetime, open real, high real, low real, close real, volume int)')
         c.close()
 
+    def CreateTableEndOfMonth(self, drop):
+        '''Create the endofmonth table, dropping any existing if asked'''
+        c = self.db.cursor()
+        if drop:
+            c.execute('drop table if exists endofmonth')
+        c.execute('create table endofmonth (symbol text, date datetime, close real)')
+        c.close()
+
     def LookupSymbol(self, symbol):
         c = self.db.cursor()
         try:
@@ -242,6 +250,31 @@ if __name__ == "__main__":
         except Exception as error:
             print("Insert into prices failed", error, row)
             sys.exit(1)
+
+    # EndOfMonth
+    try:
+        stockdb.CreateTableEndOfMonth(args.drop)
+    except sqlite3.OperationalError as error:
+        # table already exists
+        print("Database %s already exists, Use --drop to recreate" %(args.db,))
+        sys.exit(1)
+
+    # EOM data - The Makefile generates the subset into eom.csv for us
+    # The input CSV is in the form:
+    # symbol | date | open | high | low | close | volume
+    eom = 'prices/eom.csv'
+    print("Processing:", eom)
+    for row in csv.reader(open(eom, 'r')):
+        try:
+            c.execute('insert into endofmonth values (?, ?, ?)',
+                (row[0].strip(),
+                time.mktime(time.strptime(row[1].strip(), '%Y%m%d')),
+                float(row[5])))
+        except Exception as error:
+            print("Insert into endofmonth failed", error, row)
+            sys.exit(1)
+
+    # Make it so
     stockdb.commit()
     stockdb.close()
 
