@@ -11,6 +11,17 @@ SHORTS_CSV=shorts/2010.csv shorts/2011.csv shorts/2012.csv shorts/2013.csv short
 prices/prices.csv:
 	cat prices/raw/*.txt > $@
 
+YEARS=10 11 12 13 14 15 16 17 18 19
+MONTHS=01 02 03 04 05 06 07 08 09 10 11 12
+.PHONY: prices/eom.csv
+prices/eom.csv:
+	for year in $(YEARS); do for month in $(MONTHS); do \
+		ls -1 prices/raw/20$$year$$month??.txt | tail -1; \
+	done; done | while read eom; do \
+		cat $$eom >> $@; \
+	done
+
 $(DB): $(SHORTS_CSV) stockdb.py prices/prices.csv symbols/ASXListedCompanies.csv
 	rm -f $(DB)
 	stockdb.py  --db $@ 
+
