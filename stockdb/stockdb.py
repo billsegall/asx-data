@@ -8,9 +8,9 @@ PROFILE=False
 class StockDB:
     '''The ASX Stock Database'''
 
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, check_same_thread):
         self.dbfile = dbfile
-        self.db = sqlite3.connect(self.dbfile, detect_types=sqlite3.PARSE_DECLTYPES)
+        self.db = sqlite3.connect(self.dbfile, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=check_same_thread)
 
     def __del__(self):
         self.db.close()

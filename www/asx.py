@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-# Copyright (c) 2019, Bill Segall
+# Copyright (c) 2019-2021, Bill Segall
 # All rights reserved. See LICENSE for details.
 
 # Local
@@ -57,7 +57,7 @@ def symbolinfo(symbol):
         return name + ', Industry: ' + industry + ', Market Cap: $' + millify(mcap)
 
 # Open our database and grab some useful info from it
-stocks = stockdb.StockDB(app.config['DATABASE'])
+stocks = stockdb.StockDB(app.config['DATABASE'], False)
 c = stocks.cursor()
 c.execute('SELECT min(date), max(date) FROM prices where symbol = "XAO"')
 xao_date_min, xao_date_max, = c.fetchone()
