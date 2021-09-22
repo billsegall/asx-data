@@ -59,8 +59,9 @@ def symbolinfo(symbol):
 # Open our database and grab some useful info from it
 stocks = stockdb.StockDB(app.config['DATABASE'], False)
 c = stocks.cursor()
-c.execute('SELECT min(date), max(date) FROM prices where symbol = "XAO"')
+c.execute('SELECT min(date), max(date) FROM endofday where symbol = "XAO"')
 xao_date_min, xao_date_max, = c.fetchone()
+print(xao_date_min, xao_date_max)
 default_date_min = date2human(xao_date_max - 365 * 24 * 60 * 60) # One year
 default_date_max = date2human(xao_date_max)
 print("Data available from %s to %s" %(date2human(xao_date_min), date2human(xao_date_max)))
@@ -217,7 +218,7 @@ def graph1(symbol, start=None, end=None):
 
     # Find the date range available for this symbol
     c = stocks.cursor()
-    c.execute('SELECT min(date), max(date) FROM prices WHERE symbol = ?', (symbol,))
+    c.execute('SELECT min(date), max(date) FROM endofday WHERE symbol = ?', (symbol,))
     price_date_min, price_date_max = c.fetchone()
 
     # limit date range by data availabity (index, symbol) and user selection
@@ -225,20 +226,20 @@ def graph1(symbol, start=None, end=None):
     date_max = min(price_date_max, xao_date_max, user_date_max)
 
     # So now we want our maxima and minima for our two axes: price and index
-    c.execute('SELECT min(close), max(close) FROM prices WHERE symbol = ? AND date >= ? AND date <= ?', (symbol, date_min, date_max))
+    c.execute('SELECT min(close), max(close) FROM endofday WHERE symbol = ? AND date >= ? AND date <= ?', (symbol, date_min, date_max))
     price_min, price_max = c.fetchone()
 
-    c.execute('SELECT min(close), max(close) FROM prices WHERE symbol = "XAO" AND date >= ? AND date <= ?', (date_min, date_max))
+    c.execute('SELECT min(close), max(close) FROM endofday WHERE symbol = "XAO" AND date >= ? AND date <= ?', (date_min, date_max))
     xao_min, xao_max = c.fetchone()
 
     # Grab a figure
     fig, ax = plt.subplots()
     ax.set_xlabel("Date")
 
-    # Prices (allowed to scale naturally and is our left axis label)
+    # endofday (allowed to scale naturally and is our left axis label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
+    c.execute('SELECT date, close FROM endofday WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC', (symbol, date_min, date_max))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
@@ -249,7 +250,7 @@ def graph1(symbol, start=None, end=None):
     # XAO (scaled to price, no label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices where symbol = "XAO" AND date >= ? AND date <= ?  ORDER BY date ASC', (date_min, date_max))
+    c.execute('SELECT date, close FROM endofday where symbol = "XAO" AND date >= ? AND date <= ?  ORDER BY date ASC', (date_min, date_max))
     data = c.fetchall()
     for row in data:
         dates.append(datetime.datetime.fromtimestamp(row[0]))
@@ -302,7 +303,7 @@ def graph2(symbol):
     '''
 
     c = stocks.cursor()
-    c.execute('SELECT min(close), max(close) FROM prices where symbol = ?', (symbol,))
+    c.execute('SELECT min(close), max(close) FROM endofday where symbol = ?', (symbol,))
     price_min, price_max = c.fetchone()
 
     # Grab a figure
@@ -314,17 +315,17 @@ def graph2(symbol):
     #fig.autofmt_xdate()
     #plt.tick_params(labelsize=12)
 
-    # XAO (used for scaling prices)
+    # XAO (used for scaling endofday)
     xao_values = []
-    c.execute('SELECT close FROM prices where symbol = "XAO" order by date asc')
+    c.execute('SELECT close FROM endofday where symbol = "XAO" order by date asc')
     data = c.fetchall()
     for row in data:
         xao_values.append(row[0])
 
-    # Prices (scaled to XAO and is our left axis label)
+    # endofday (scaled to XAO and is our left axis label)
     dates = []
     values = []
-    c.execute('SELECT date, close FROM prices where symbol = ? order by date asc', (symbol,))
+    c.execute('SELECT date, close FROM endofday where symbol = ? order by date asc', (symbol,))
     data = c.fetchall()
     for i, row in enumerate(data):
         if len(xao_values) > i:
