@@ -43,12 +43,12 @@ class StockDB:
         c.execute('create table shorts (symbol text, date datetime, short real)')
         c.close()
 
-    def CreateTablePrices(self, drop):
-        '''Create the prices table, dropping any existing if asked'''
+    def CreateTableEndOfDay(self, drop):
+        '''Create the endofday table, dropping any existing if asked'''
         c = self.db.cursor()
         if drop:
-            c.execute('drop table if exists prices')
-        c.execute('create table prices (symbol text, date datetime, open real, high real, low real, close real, volume int)')
+            c.execute('drop table if exists endofday')
+        c.execute('create table endofday (symbol text, date datetime, open real, high real, low real, close real, volume int)')
         c.close()
 
     def CreateTableEndOfMonth(self, drop):
@@ -225,9 +225,9 @@ if __name__ == "__main__":
             except Exception as e:
                 pass
 
-    # Prices
+    # EndOfDay
     try:
-        stockdb.CreateTablePrices(args.drop)
+        stockdb.CreateTableEndOfDay(args.drop)
     except sqlite3.OperationalError as error:
         # table already exists
         print("Database %s already exists, Use --drop to recreate" %(args.db,))
@@ -236,11 +236,11 @@ if __name__ == "__main__":
     # Price data - see README.md for how that's obtained
     # The input CSV is in the form:
     # symbol | date | open | high | low | close | volume
-    prices = 'prices/prices.csv'
-    print("Processing:", prices)
-    for row in csv.reader(open(prices, 'r')):
+    eod = 'asx-eod-data/eod.csv'
+    print("Processing:", eod)
+    for row in csv.reader(open(eod, 'r')):
         try:
-            c.execute('insert into prices values (?, ?, ?, ?, ?, ?, ?)',
+            c.execute('insert into endofday values (?, ?, ?, ?, ?, ?, ?)',
                 (row[0].strip(),
                 time.mktime(time.strptime(row[1].strip(), '%Y%m%d')),
                 float(row[2]),
@@ -249,7 +249,7 @@ if __name__ == "__main__":
                 float(row[5]),
                 int(row[6])))
         except Exception as error:
-            print("Insert into prices failed", error, row)
+            print("Insert into endofday failed", error, row)
             sys.exit(1)
 
     # EndOfMonth
@@ -260,10 +260,8 @@ if __name__ == "__main__":
         print("Database %s already exists, Use --drop to recreate" %(args.db,))
         sys.exit(1)
 
-    # EOM data - The Makefile generates the subset into eom.csv for us
-    # The input CSV is in the form:
-    # symbol | date | open | high | low | close | volume
-    eom = 'prices/eom.csv'
+    # EOM data - The Makefile generates the subset of eod into eom.csv
+    eom = 'asx-eod-data/eom.csv'
     print("Processing:", eom)
     for row in csv.reader(open(eom, 'r')):
         try:
