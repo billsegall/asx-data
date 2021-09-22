@@ -43,7 +43,7 @@ symbol | date | short
 ------ | ---- | -------
 BHP    | 1281571200.0 | 0.66
 
-### prices
+### endofday
 symbol | date | open | high | low | close | volume
 ------ | ---- | ---- | ---- | --- | ----- | ------
 BHP    | 1281657600.0 | 42.75 | 43.26 | 42.71 | 43.08 | 3691070
