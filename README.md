@@ -15,15 +15,15 @@ dates). See the Makefile for how they're then put into the database.
 
 The price data currently in use is purchased from eoddata.com and is proprietary. Should you purchase it you should place the zip files in a directory named asx-eod-data/zips/ and we should be able to work with that. Please contact me if that isn't the case.
 
+### older instructions
+
 The **raw** price and symbol data was previously obtained from [ASX Historical
 Data](https://www.asxhistoricaldata.com/archive/) and flattened and
-renamed for consistency. See the Makefile for how that's put into the
-database. To add a new year you'll need to specify the date formats
-that seem to change most years.
+renamed for consistency.  This raw data did **not** cater for
+splits and dividends.
 
-Note that the raw data does **not** cater for splits and dividends.
-
-This data is still made available in the prices directory but is no longer used. Code for dealing with it is contained in an old version in the repository.
+This data is still made available in the prices directory but is no longer
+used. Code for dealing with can be found in the repository history.
 
 ## ASX symbol data
 
