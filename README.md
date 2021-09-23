@@ -27,7 +27,7 @@ used. Code for dealing with can be found in the repository history.
 
 ## ASX symbol data
 
-Symbol data can be obtained from [ASXlistedcompanies](https://www.asxlistedcompanies.com/)
+Symbol data can be obtained from [listcorp](https://www.listcorp.com/asx) if you sign up for their newsletter.
 
 ## The database
 

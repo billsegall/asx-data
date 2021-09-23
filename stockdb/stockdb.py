@@ -92,8 +92,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Symbol data - see README.md for how that's obtained
-    # The input has CSV has two header rows and is then in the form:
-    # Code,Company,Sector,Market Cap,Weight(%),,Total Index Market Cap,
+    # The input has CSV has one header rows and is then in the form:
+    # Code,Company,Listcorp-link,Market Cap,Last trade,Change, %Change", Sector
     # Market Cap is strings of the form 123,456 so we need get ints from that
     locale.setlocale( locale.LC_ALL, 'en_US.UTF-8')
     symbols = 'symbols/ASXListedCompanies.csv'
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         if reader.line_num >= 4: # There is no row 0
             try:
                 c.execute('insert into symbols values (?, ?, ?, ?)',
-                    (row[0].strip(), row[1].strip(), row[2].strip(), locale.atof(row[3].strip())))
+                    (row[0].strip(), row[1].strip(), row[6].strip(), locale.atof(row[3].strip())))
             except Exception as error:
                 print("Insert into symbols failed", error, row)
                 sys.exit(1)
