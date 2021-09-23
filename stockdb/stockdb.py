@@ -81,7 +81,7 @@ if __name__ == "__main__":
     if PROFILE:
         cProfile.run('re.compile("foo|bar")')
 
-    stockdb = StockDB(args.db)  
+    stockdb = StockDB(args.db, False)
     c = stockdb.cursor()
 
     # Symbols
