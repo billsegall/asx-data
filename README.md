@@ -27,7 +27,7 @@ This data is still made available in the prices directory but is no longer used.
 
 ## ASX symbol data
 
-Symbol data can be obtained from [ASXlistedcompanies](https://www.asxlistedcompanies.com/)
+Symbol data can be obtained from [listcorp](https://www.listcorp.com/asx) if you sign up for their newsletter.
 
 ## The database
 
