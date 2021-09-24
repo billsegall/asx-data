@@ -103,7 +103,7 @@ if __name__ == "__main__":
         if reader.line_num >= 2: # There is no row 0, row 1 is header
             try:
                 c.execute('insert into symbols values (?, ?, ?, ?)',
-                    (row[0][4:].strip(), row[1].strip(), row[6].strip(), locale.atof(row[3].strip())))
+                    (row[0][4:].strip(), row[1].strip(), row[7].strip(), locale.atof(row[3].strip())))
                 
             except Exception as error:
                 print("Insert into symbols failed", error, row)
