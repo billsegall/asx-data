@@ -50,7 +50,7 @@ def symbolinfo(symbol):
         return "NULL Symbol"
 
     name, industry, mcap = stocks.LookupSymbol(symbol)
-    #print(name, industry, mcap)
+    #print("name:", name, "industry:", industry, "mcap:", mcap)
     if name == None:
         return "Symbol lookup failed"
     else:
