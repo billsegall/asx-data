@@ -130,7 +130,8 @@ if __name__ == "__main__":
         'shorts/2017.csv' : '%Y-%m-%d',
         'shorts/2018.csv' : '%Y-%m-%d',
         'shorts/2019.csv' : '%Y-%m-%d',
-        'shorts/2020.csv' : '%d/%m/%Y'
+        'shorts/2020.csv' : '%d/%m/%Y',
+        'shorts/2021.csv' : '%Y-%m-%d'
     }
 
     # The ASX have some days with bad data
