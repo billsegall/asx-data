@@ -13,7 +13,10 @@ dates). See the Makefile for how they're then put into the database.
 
 ## ASX price data
 
-The price data currently in use is purchased from eoddata.com and is proprietary. Should you purchase it you should place the zip files in a directory named asx-eod-data/zips/ and we should be able to work with that. Please contact me if that isn't the case.
+The price data currently in use is purchased from eoddata.com and is
+proprietary. Should you purchase it you should place the zip files in
+a directory named asx-eod-data/zips/ and we should be able to work
+with that. Please contact me if that isn't the case.
 
 ### older instructions
 
@@ -27,7 +30,8 @@ used. Code for dealing with can be found in the repository history.
 
 ## ASX symbol data
 
-Symbol data can be obtained from [listcorp](https://www.listcorp.com/asx) if you sign up for their newsletter.
+Symbol data can be obtained from [listcorp](https://www.listcorp.com/asx)
+if you sign up for their newsletter (which is not bad).
 
 ## The database
 
@@ -53,3 +57,8 @@ symbol | date | close
 ------ | ---- | -----
 BHP    | 1281657600.0 | 43.08
 
+# Charting
+
+There is a pretty cheesy web server (using python/flask) that will
+serve up some ugly charts in the www directory. This is not the
+primary purpose of this dataset and it's not well maintained.
