@@ -199,7 +199,7 @@ def graph2_png(symbol=None):
 def graph1(symbol, start=None, end=None):
     '''
     For each symbol we plot:
-    * The symbol's closing price
+    * The symbols closing price
     * The XAO scaled to that
     * The short percentage
     '''
