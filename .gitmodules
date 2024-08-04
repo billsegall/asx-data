@@ -1,3 +1,0 @@
-[submodule "stockdb/asx-eod-data"]
-	path = stockdb/asx-eod-data
-	url = git@github.com:billsegall/asx-eod-data.git
