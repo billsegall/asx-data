@@ -18,16 +18,6 @@ proprietary. Should you purchase it you should place the zip files in
 a directory named asx-eod-data/zips/ and we should be able to work
 with that. Please contact me if that isn't the case.
 
-### older instructions
-
-The **raw** price and symbol data was previously obtained from [ASX Historical
-Data](https://www.asxhistoricaldata.com/archive/) and flattened and
-renamed for consistency.  This raw data did **not** cater for
-splits and dividends.
-
-This data is still made available in the prices directory but is no longer
-used. Code for dealing with can be found in the repository history.
-
 ## ASX symbol data
 
 Symbol data can be obtained from [listcorp](https://www.listcorp.com/asx)
@@ -59,6 +49,6 @@ BHP    | 1281657600.0 | 43.08
 
 # Charting
 
-There is a pretty cheesy web server (using python/flask) that will
-serve up some ugly charts in the www directory. This is not the
-primary purpose of this dataset and it's not well maintained.
+There is a pretty cheesy web server (using python/flask) used for
+test purposes that will serve up some ugly charts in the www directory.
+This is not the purpose of this dataset and it's not well maintained.
