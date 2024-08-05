@@ -34,7 +34,5 @@ $(DB): $(SHORTS_CSV) stockdb.py asx-eod-data/eod.csv asx-eod-data/eom.csv symbol
 	mv .$@ $@
 
 clean:
-	@rm -f asx-eod-data/eod.csv asx-eod-data/eom.csv
+	@rm -f asx-eod-data/eod.csv asx-eod-data/eom.csv stockdb.db
 	@rm -rf asx-eod-data/tmp
-
-
