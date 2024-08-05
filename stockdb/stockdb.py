@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-# Copyright (c) 2019-2021, Bill Segall
+# Copyright (c) 2019-2024, Bill Segall
 # All rights reserved. See LICENSE for details.
 
 import argparse, csv, locale, sqlite3, time, sys, cProfile, pstats, re
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     # Name, Code, (#short, %short,)*            - The short data we want
 
     # The ASX are inconsistent in their date formats
-    filedateformats = {
+    filedateformats_2014 = {
         'shorts/2010.csv' : '%d/%m/%Y',
         'shorts/2011.csv' : '%d/%m/%Y',
         'shorts/2012.csv' : '%Y-%m-%d',
@@ -132,6 +132,13 @@ if __name__ == "__main__":
         'shorts/2019.csv' : '%Y-%m-%d',
         'shorts/2020.csv' : '%d/%m/%Y',
         'shorts/2021.csv' : '%Y-%m-%d'
+    }
+
+    # And they're inconsistent in their file formats as well as of 2022
+    filedateformats_2022 = {
+        'shorts/2022.csv' : '%d/%m/%Y',
+        'shorts/2023.csv' : '%Y-%m-%d',
+        'shorts/2024.csv' : '%Y-%m-%d'
     }
 
     # The ASX have some days with bad data
@@ -153,29 +160,28 @@ if __name__ == "__main__":
         print("Database shorts already exists, Use --drop to recreate")
         sys.exit(1)
 
-    for f, fmt in filedateformats.items():
+    d_shorts = {}
+
+    for f, fmt in filedateformats_2014.items():
         print("Processing:", f, fmt)
         reader = csv.reader(open(f, 'r'))
-        d_shorts = {}
         dates = []
         for row in reader:
 
             # There is no row zero
-            if reader.line_num == 0:
-                print("oops: row 0", row)
-                sys.exit(1)
 
             # Header 1: Basically a descriptor but check it
-            elif reader.line_num == 1:
+            if reader.line_num == 1:
                 if row[2] != 'Trade Date':
                     print("oops: row 1", row)
                     sys.exit(1)
 
-            # Header 2: Dates so build the date list
-            elif reader.line_num == 2:
+            # Header 2: The dates
+            if reader.line_num == 2:
                 for date in row[2::2]: # Every second
                     try:
                         dt = time.mktime(time.strptime(date, fmt))
+
                     except Exception as e:
                         print("Failed on:", date, fmt)
                         print(e)
@@ -206,26 +212,78 @@ if __name__ == "__main__":
                 for percent in row[3::2]: # Every second
                     if percent != '': # Lots of empty days
                         if dates[date_index] != 0: # Don't add days ASIC said had bad data
-                            d_shorts[symbol][1].append((dates[date_index], float(percent)))
+                            d_shorts[symbol][1].append((dates[date_index], float(percent.replace(',',''))))
                             #print("dates", dates[date_index])
 
                     date_index += 1
 
-        for k, v in d_shorts.items():
-            try:
-                for date, percent in v[1]:
-                    #print("try", date, percent)
-                    c.execute('insert into shorts values (?, ?, ?)', (k, date, percent))
-            except:
-                print("Insert shorts", k, date, percent, "failed")
-                sys.exit(1)
+    for f, fmt in filedateformats_2022.items():
+        print("Processing:", f, fmt)
+        reader = csv.reader(open(f, 'r'))
+        dates = []
+        for row in reader:
 
-            # Some symbols will be delisted and not in our symbol list so add
-            # what we can ignoring errors
-            try:
-                c.execute('insert into symbols values (?, ?, "Delisted", 0)', (k, v[0]))
-            except Exception as e:
-                pass
+            # There is no row zero
+
+            # Header 1: Basically a descriptor but check it
+            if reader.line_num == 1:
+                if row[1] != 'Trade Date':
+                    print("oops: row 1", "rows[0]", row[0], "rows[1]", row[1], row)
+                    sys.exit(1)
+
+            # Header 2: Dates so build the date list
+            # elif reader.line_num == 2:
+                for date in row[2::2]: # Every second
+                    try:
+                        dt = time.mktime(time.strptime(date, fmt))
+                        print("date:", date)
+                    except Exception as e:
+                        print("Failed on:", date, fmt)
+                        print(e)
+                    if not dt in baddates:
+                        dates.append(dt)
+                    else:
+                        dates.append(0)
+
+            # Header 3, Another descriptor but check it
+            elif reader.line_num == 2:
+                if row[2] != 'Reported Short Positions':
+                    print("oops: row 2", row)
+                    sys.exit(1)
+
+            # short data to add to our dictionary
+            else:
+                name = row[0].strip()
+                symbol = row[1].strip()
+                if symbol not in d_shorts:
+                    d_shorts[symbol] = (name, [])
+                date_index = 0
+                for percent in row[3::2]: # Every second
+                    if percent != '' and percent != '-': # Lots of empty days
+                        if dates[date_index] != 0: # Don't add days ASIC said had bad data
+                            print("percent", percent)
+                            d_shorts[symbol][1].append((dates[date_index], float(percent.replace(',',''))))
+                            #print("dates", dates[date_index])
+
+                    date_index += 1
+
+
+    # Now add them all to the shorts table
+    for k, v in d_shorts.items():
+        try:
+            for date, percent in v[1]:
+                #print("try", date, percent)
+                c.execute('insert into shorts values (?, ?, ?)', (k, date, percent))
+        except:
+            print("Insert shorts", k, date, percent, "failed")
+            sys.exit(1)
+
+        # Some symbols will be delisted and not in our symbol list so add
+        # what we can ignoring errors
+        try:
+            c.execute('insert into symbols values (?, ?, "Delisted", 0)', (k, v[0]))
+        except Exception as e:
+            pass
 
     # EndOfDay
     try:
