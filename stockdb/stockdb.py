@@ -137,13 +137,16 @@ if __name__ == "__main__":
     # And they're inconsistent in their file formats as well as of 2022
     filedateformats_2022 = {
         'shorts/2022.csv' : '%d/%m/%Y',
-        'shorts/2023.csv' : '%Y-%m-%d',
-        'shorts/2024.csv' : '%Y-%m-%d'
+        'shorts/2023.csv' : '%d/%m/%Y',
+        'shorts/2024.csv' : '%d/%m/%Y'
     }
 
     # The ASX have some days with bad data
     # https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/
-    bad = [ "19 June 2017", "16 June 2017", "15 June 2017", "1 November 2016", "3 October 2016",
+    bad = [
+    "22 December 2022", "1 February 2022", "31 January 2022", "15 September 2020",
+    "2 September 2020", "1 September 2020", "25 May 2020", "19 June 2017",
+    "16 June 2017", "15 June 2017", "1 November 2016", "3 October 2016",
     "6 October 2014", "2 September 2014", "1 September 2014", "29 August 2014", "15 November 2013",
     "7 October 2013", "28 June 2013", "27 June 2013", "26 June 2013", "25 June 2013", "24 June 2013",
     "21 June 2013", "20 June 2013", "19 June 2013", "18 June 2013", "17 June 2013", "14 June 2013",
@@ -236,7 +239,7 @@ if __name__ == "__main__":
                 for date in row[2::2]: # Every second
                     try:
                         dt = time.mktime(time.strptime(date, fmt))
-                        print("date:", date)
+                        #print("date:", date)
                     except Exception as e:
                         print("Failed on:", date, fmt)
                         print(e)
@@ -261,7 +264,7 @@ if __name__ == "__main__":
                 for percent in row[3::2]: # Every second
                     if percent != '' and percent != '-': # Lots of empty days
                         if dates[date_index] != 0: # Don't add days ASIC said had bad data
-                            print("percent", percent)
+                            #print("percent", percent)
                             d_shorts[symbol][1].append((dates[date_index], float(percent.replace(',',''))))
                             #print("dates", dates[date_index])
 
