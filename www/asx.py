@@ -62,41 +62,14 @@ def stock(symbol=None):
         symbol = symbol.strip().upper()
 
     if not symbol:
-        return render_template('index.html',
-                               default_start=default_date_min,
-                               default_end=default_date_max)
-
-    start = request.args.get('start')
-    end = request.args.get('end')
-
-    # Default to last year of this symbol's own data
-    if not start or not end:
-        c = stocks.cursor()
-        c.execute('SELECT max(date) FROM endofday WHERE symbol = ?', (symbol,))
-        row = c.fetchone()
-        sym_max = row[0] if row and row[0] else xao_date_max
-        if not end:
-            end = date2human(sym_max)
-        if not start:
-            start = date2human(sym_max - 365 * 24 * 60 * 60)
-
-    try:
-        time.mktime(time.strptime(start, '%Y%m%d'))
-    except Exception:
-        start = default_date_min
-    try:
-        time.mktime(time.strptime(end, '%Y%m%d'))
-    except Exception:
-        end = default_date_max
+        return render_template('index.html')
 
     name, industry, mcap = stocks.LookupSymbol(symbol)
     return render_template('stock.html',
                            symbol=symbol,
                            name=name or symbol,
                            industry=industry or '',
-                           mcap=millify(mcap) if mcap else '',
-                           start=start,
-                           end=end)
+                           mcap=millify(mcap) if mcap else '')
 
 
 @app.context_processor

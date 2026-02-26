@@ -27,38 +27,12 @@
 <!-- Chart container -->
 <div id="chart" class="w-full rounded-lg overflow-hidden" style="height:560px;"></div>
 
-<!-- Date range form — below chart -->
-<form id="date-form" class="flex flex-wrap items-center gap-3 mt-4">
-    <label class="text-sm text-gray-400">From
-        <input type="date" id="input-start" name="start"
-               value="{{ start[:4] }}-{{ start[4:6] }}-{{ start[6:8] }}"
-               class="ml-2 bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500 [color-scheme:dark]">
-    </label>
-    <label class="text-sm text-gray-400">To
-        <input type="date" id="input-end" name="end"
-               value="{{ end[:4] }}-{{ end[4:6] }}-{{ end[6:8] }}"
-               class="ml-2 bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500 [color-scheme:dark]">
-    </label>
-    <button type="submit"
-            class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded">Update</button>
-</form>
-
 <script>
 (function () {
     const symbol = {{ symbol | tojson }};
-    const start  = {{ start  | tojson }};
-    const end    = {{ end    | tojson }};
 
     let chartType = 'line';
     let chartData = null;
-
-    // Convert YYYYMMDD → YYYY-MM-DD for date input, and back on submit
-    document.getElementById('date-form').addEventListener('submit', function (e) {
-        e.preventDefault();
-        const s  = document.getElementById('input-start').value.replace(/-/g, '');
-        const en = document.getElementById('input-end').value.replace(/-/g, '');
-        window.location.href = '/stock/' + symbol + '?start=' + s + '&end=' + en;
-    });
 
     function buildTraces(data, type) {
         const traces = [];
@@ -127,44 +101,58 @@
         return traces;
     }
 
-    const layout = {
-        template: 'plotly_dark',
-        paper_bgcolor: '#030712',
-        plot_bgcolor:  '#030712',
-        margin: { t: 10, r: 60, b: 40, l: 60 },
-        xaxis: {
-            type: 'date',
-            gridcolor: '#1f2937',
-            rangeslider: { visible: true, bgcolor: '#111827', thickness: 0.05 },
-            rangeselector: {
-                bgcolor: '#1f2937',
-                activecolor: '#3b82f6',
-                font: { color: '#d1d5db' },
-                buttons: [
-                    { count: 1,  label: '1M',  step: 'month', stepmode: 'backward' },
-                    { count: 3,  label: '3M',  step: 'month', stepmode: 'backward' },
-                    { count: 6,  label: '6M',  step: 'month', stepmode: 'backward' },
-                    { count: 1,  label: '1Y',  step: 'year',  stepmode: 'backward' },
-                    { step: 'all', label: 'All' },
-                ],
+    function makeLayout(data) {
+        // Default viewport: last 1 year of available data
+        var rangeStart = null, rangeEnd = null;
+        if (data.ohlcv.length > 0) {
+            rangeEnd   = new Date(data.ohlcv[data.ohlcv.length - 1][0]);
+            rangeStart = new Date(rangeEnd);
+            rangeStart.setFullYear(rangeStart.getFullYear() - 1);
+        }
+
+        return {
+            template: 'plotly_dark',
+            paper_bgcolor: '#030712',
+            plot_bgcolor:  '#030712',
+            margin: { t: 10, r: 60, b: 40, l: 60 },
+            xaxis: {
+                type: 'date',
+                gridcolor: '#1f2937',
+                range: rangeStart ? [rangeStart.toISOString(), rangeEnd.toISOString()] : undefined,
+                rangeslider: { visible: true, bgcolor: '#111827', thickness: 0.05 },
+                rangeselector: {
+                    bgcolor: '#1f2937',
+                    activecolor: '#3b82f6',
+                    font: { color: '#d1d5db' },
+                    buttons: [
+                        { count: 1,  label: '1M',  step: 'month', stepmode: 'backward' },
+                        { count: 3,  label: '3M',  step: 'month', stepmode: 'backward' },
+                        { count: 6,  label: '6M',  step: 'month', stepmode: 'backward' },
+                        { count: 1,  label: '1Y',  step: 'year',  stepmode: 'backward' },
+                        { count: 3,  label: '3Y',  step: 'year',  stepmode: 'backward' },
+                        { count: 5,  label: '5Y',  step: 'year',  stepmode: 'backward' },
+                        { count: 10, label: '10Y', step: 'year',  stepmode: 'backward' },
+                        { step: 'all', label: 'All' },
+                    ],
+                },
             },
-        },
-        yaxis:  { title: 'Price',   gridcolor: '#1f2937', fixedrange: false },
-        yaxis2: { title: '% Short', overlaying: 'y', side: 'right', showgrid: false, fixedrange: false },
-        legend: { bgcolor: 'rgba(0,0,0,0)', x: 0.01, y: 0.99 },
-        hovermode: 'x unified',
-    };
+            yaxis:  { title: 'Price',   gridcolor: '#1f2937', fixedrange: false },
+            yaxis2: { title: '% Short', overlaying: 'y', side: 'right', showgrid: false, fixedrange: false },
+            legend: { bgcolor: 'rgba(0,0,0,0)', x: 0.01, y: 0.99 },
+            hovermode: 'x unified',
+        };
+    }
 
     function renderChart() {
         if (!chartData) return;
-        Plotly.react('chart', buildTraces(chartData, chartType), layout, {
+        Plotly.react('chart', buildTraces(chartData, chartType), makeLayout(chartData), {
             responsive: true,
             displaylogo: false,
             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
         });
     }
 
-    fetch('/api/stock/' + symbol + '?start=' + start + '&end=' + end)
+    fetch('/api/stock/' + symbol)
         .then(r => r.json())
         .then(data => { chartData = data; renderChart(); });
 
