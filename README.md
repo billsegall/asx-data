@@ -23,19 +23,19 @@ with that. Please contact me if that isn't the case.
 Symbol data is fetched from the [ASX official listed companies CSV](https://www.asx.com.au/asx/research/ASXListedCompanies.csv),
 which is updated nightly. Run `make fetch_symbols` (or `make fetch_all`) to refresh it.
 
-Market cap is sourced separately from periodic ListCorp snapshots stored in
-`stockdb/symbols/ASXListedCompanies-YYYYMMDD.csv`. The most recent snapshot
-is used automatically at DB build time and the date is recorded against each
-symbol so the web app can display it as "(as of {month year})".
+Shares outstanding are derived at DB build time from the most recent ListCorp
+snapshot in `stockdb/symbols/ASXListedCompanies-YYYYMMDD.csv` using
+`shares = mcap / last_trade_price`. Market cap is then computed live at query
+time as `shares × latest close price`, so it stays current as price data is refreshed.
 
 ## The database
 
 The database consists of three tables described below by example:
 
 ### symbols
-symbol | name | industry | mcap | mcap_date
------- | ---- | --- | --- | ---
-BHP    | BHP BILLITON LIMITED ORDINARY | Materials | 108,172,000,000 | 1730764800.0
+symbol | name | industry | shares
+------ | ---- | --- | ------
+BHP    | BHP BILLITON LIMITED ORDINARY | Materials | 5,326,000,000
 
 ### shorts
 symbol | date | short
@@ -52,8 +52,24 @@ symbol | date | close
 ------ | ---- | -----
 BHP    | 1281657600.0 | 43.08
 
-# Charting
+# Web application
 
-There is a pretty cheesy web server (using python/flask) used for
-test purposes that will serve up some ugly charts in the www directory.
-This is not the purpose of this dataset and it's not well maintained.
+A Flask web app in `www/` visualises the data with a dark theme (Tailwind CSS)
+and interactive charts (Plotly.js).
+
+## Running
+
+```bash
+cd www && ./asx        # local
+docker compose up      # Docker (mounts DB as read-only volume)
+```
+
+## Features
+
+- **Stock page** (`/stock/<symbol>`) — interactive candlestick/line chart with
+  XAO overlay, short interest on a secondary axis, and range selector buttons
+  (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / All). Defaults to a 1Y viewport over
+  the full available history.
+- **Current shorts** (`/shorts-now`) — latest short positions, client-side sortable
+- **Historical shorts** (`/shorts-historical`) — peak short positions per symbol
+- **Market cap** — computed live from shares outstanding × latest close price
