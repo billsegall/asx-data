@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ASX Data{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>tailwind.config = { darkMode: 'class' }</script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="bg-gray-900 border-b border-gray-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-14">
+                <a href="/" class="text-white font-semibold text-lg tracking-tight">ASX Data</a>
+                <div class="flex items-center gap-6">
+                    <!-- Shorts dropdown -->
+                    <div class="relative group">
+                        <button class="text-gray-300 hover:text-white text-sm flex items-center gap-1">
+                            Shorts <span class="text-xs">&#x25BE;</span>
+                        </button>
+                        <div class="absolute right-0 mt-1 w-40 bg-gray-800 border border-gray-700 rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                            <a href="/shorts-now" class="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700">Current</a>
+                            <a href="/shorts-historical" class="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700">Historical</a>
+                        </div>
+                    </div>
+                    <!-- Quick search -->
+                    <form method="GET" action="/stock" class="flex items-center gap-2">
+                        <input type="text" name="symbol" placeholder="Symbol&hellip;"
+                               class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 w-24 focus:outline-none focus:border-blue-500"
+                               maxlength="5" style="text-transform:uppercase">
+                        <button type="submit"
+                                class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-3 py-1.5 rounded">Go</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% include "footer.html" %}
+</body>
+</html>

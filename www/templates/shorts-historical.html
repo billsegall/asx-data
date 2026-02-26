@@ -1,27 +1,68 @@
-<!DOCTYPE html>
-    <head>
-        <title>ASX shorts</title>
-        <link rel="stylesheet" href='../static/style.css'/>
-    </head>
+{% extends "base.html" %}
 
-    <body>
-        <h3>Shorts</h3>
-        <table border = 1>
-            <thead>
-                <td>Symbol</td>
-                <td>Date</td>
-                <td>Percent short</td>
-            </thead>
+{% block title %}ASX Shorts &mdash; Historical{% endblock %}
 
-            {% for row in rows %}
-                <tr>
-                    <td><a href="/stock/{{row["symbol"]}}">{{row["symbol"]}}</a></td>
-                    <td>{{date2human(row["date"])}}</td>
-                    <td>{{row["max(short)"]}}</td>
-                </tr>
-            {% endfor %}
-        </table>
-    </body>
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-2xl font-bold text-white">Historical Peak Short Positions</h1>
+</div>
 
-{% include "footer.html" %}
-</html>
+<div class="overflow-x-auto rounded-lg border border-gray-800">
+    <table id="shorts-table" class="w-full text-sm">
+        <thead>
+            <tr class="bg-gray-900 text-gray-400 text-left select-none">
+                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(0)">Symbol &#x21C5;</th>
+                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(1)">Date &#x21C5;</th>
+                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(2)">Peak Short % &#x21C5;</th>
+            </tr>
+        </thead>
+        <tbody id="tbody">
+            <tr><td colspan="3" class="px-4 py-6 text-center text-gray-500">Loading&hellip;</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<style>
+#shorts-table tbody tr { border-top: 1px solid #1f2937; }
+#shorts-table tbody tr:hover { background: rgba(31,41,55,0.5); }
+#shorts-table tbody tr:nth-child(odd) { background: rgba(17,24,39,0.3); }
+#shorts-table tbody tr:nth-child(odd):hover { background: rgba(31,41,55,0.5); }
+</style>
+
+<script>
+var tableData = [];
+var sortDir   = {};
+
+function renderTable(rows) {
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        html += '<tr>' +
+            '<td class="px-4 py-2"><a href="/stock/' + r.symbol + '" class="text-blue-400 hover:text-blue-300 font-mono font-medium">' + r.symbol + '</a></td>' +
+            '<td class="px-4 py-2 text-gray-400 font-mono">' + r.date + '</td>' +
+            '<td class="px-4 py-2 text-gray-300">' + r.short.toFixed(2) + '%</td>' +
+            '</tr>';
+    }
+    document.getElementById('tbody').innerHTML = html;
+}
+
+function sortTable(col) {
+    var keys = ['symbol', 'date', 'short'];
+    var key  = keys[col];
+    sortDir[col] = !sortDir[col];
+    tableData.sort(function (a, b) {
+        var va = a[key], vb = b[key];
+        var cmp = (typeof va === 'number') ? va - vb : String(va).localeCompare(String(vb));
+        return sortDir[col] ? cmp : -cmp;
+    });
+    renderTable(tableData);
+}
+
+fetch('/api/shorts-historical')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+        tableData = data;
+        renderTable(tableData);
+    });
+</script>
+{% endblock %}

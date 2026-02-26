@@ -1,23 +1,186 @@
-<!DOCTYPE html>
-    <head>
-        <title>ASX:{{symbol}}</title>
-        <link rel="stylesheet" href='../static/style.css'/>
-    </head>
+{% extends "base.html" %}
 
-    <body>
-        <p><b>ASX:{{symbol}}</b> {{description}} </p>
-        <form method="POST" action="/stock">
-            {{form.csrf_token}}
-            <b>{{form.symbol.label}}</b> {{form.symbol(size=6)}}
-            <b>{{form.start.label}}</b> {{form.start(size=8)}}
-            <b>{{form.end.label}}</b> {{form.end(size=8)}}
-            <input type="submit" color="green", value="Submit">
-        </form>
-        {% if symbol != "" and description != "Unknown" %}
-            <img src="/images/{{symbol}}.png?start={{start}}&end={{end}}" alt="graph">
-            <!--- <img src="/images/{{symbol}}-adjusted.png" alt="graph"> --->
-        {% endif %}
-    </body>
+{% block title %}ASX:{{ symbol }}{% endblock %}
 
-{% include "footer.html" %}
-</html>
+{% block content %}
+<!-- Symbol info bar + toggle -->
+<div class="flex flex-wrap items-start justify-between gap-4 mb-4">
+    <div>
+        <h1 class="text-2xl font-bold text-white">
+            ASX:<span class="text-blue-400">{{ symbol }}</span>
+            {% if name %}<span class="text-gray-400 font-normal text-lg ml-3">{{ name }}</span>{% endif %}
+        </h1>
+        <div class="flex flex-wrap gap-4 mt-1 text-sm text-gray-400">
+            {% if industry %}<span>{{ industry }}</span>{% endif %}
+            {% if mcap %}<span>Market Cap: ${{ mcap }}</span>{% endif %}
+        </div>
+    </div>
+    <!-- Chart type toggle -->
+    <div class="flex rounded overflow-hidden border border-gray-700 self-start">
+        <button type="button" id="btn-candle"
+                class="px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700">Candlestick</button>
+        <button type="button" id="btn-line"
+                class="px-3 py-1.5 text-sm bg-blue-700 text-white">Line</button>
+    </div>
+</div>
+
+<!-- Chart container -->
+<div id="chart" class="w-full rounded-lg overflow-hidden" style="height:560px;"></div>
+
+<!-- Date range form — below chart -->
+<form id="date-form" class="flex flex-wrap items-center gap-3 mt-4">
+    <label class="text-sm text-gray-400">From
+        <input type="date" id="input-start" name="start"
+               value="{{ start[:4] }}-{{ start[4:6] }}-{{ start[6:8] }}"
+               class="ml-2 bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500 [color-scheme:dark]">
+    </label>
+    <label class="text-sm text-gray-400">To
+        <input type="date" id="input-end" name="end"
+               value="{{ end[:4] }}-{{ end[4:6] }}-{{ end[6:8] }}"
+               class="ml-2 bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500 [color-scheme:dark]">
+    </label>
+    <button type="submit"
+            class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded">Update</button>
+</form>
+
+<script>
+(function () {
+    const symbol = {{ symbol | tojson }};
+    const start  = {{ start  | tojson }};
+    const end    = {{ end    | tojson }};
+
+    let chartType = 'line';
+    let chartData = null;
+
+    // Convert YYYYMMDD → YYYY-MM-DD for date input, and back on submit
+    document.getElementById('date-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const s  = document.getElementById('input-start').value.replace(/-/g, '');
+        const en = document.getElementById('input-end').value.replace(/-/g, '');
+        window.location.href = '/stock/' + symbol + '?start=' + s + '&end=' + en;
+    });
+
+    function buildTraces(data, type) {
+        const traces = [];
+
+        if (type === 'candlestick') {
+            traces.push({
+                type: 'candlestick',
+                x:     data.ohlcv.map(r => new Date(r[0])),
+                open:  data.ohlcv.map(r => r[1]),
+                high:  data.ohlcv.map(r => r[2]),
+                low:   data.ohlcv.map(r => r[3]),
+                close: data.ohlcv.map(r => r[4]),
+                name: symbol,
+                yaxis: 'y',
+                increasing: { line: { color: '#22c55e' } },
+                decreasing: { line: { color: '#ef4444' } },
+            });
+        } else {
+            traces.push({
+                type: 'scatter',
+                mode: 'lines',
+                x: data.ohlcv.map(r => new Date(r[0])),
+                y: data.ohlcv.map(r => r[4]),
+                name: symbol,
+                yaxis: 'y',
+                line: { color: '#60a5fa', width: 1.5 },
+            });
+        }
+
+        // XAO scaled to the symbol's price range
+        if (data.xao.length > 0 && data.ohlcv.length > 0) {
+            const priceMin = Math.min(...data.ohlcv.map(r => r[3]));
+            const priceMax = Math.max(...data.ohlcv.map(r => r[2]));
+            const xaoVals  = data.xao.map(r => r[1]);
+            const xaoMin   = Math.min(...xaoVals);
+            const xaoMax   = Math.max(...xaoVals);
+            const scaleXao = v => xaoMax === xaoMin
+                ? priceMin
+                : priceMin + (priceMax - priceMin) * (v - xaoMin) / (xaoMax - xaoMin);
+
+            traces.push({
+                type: 'scatter',
+                mode: 'lines',
+                x: data.xao.map(r => new Date(r[0])),
+                y: xaoVals.map(scaleXao),
+                name: 'XAO (scaled)',
+                yaxis: 'y',
+                line: { color: '#6b7280', width: 1, dash: 'dot' },
+                opacity: 0.7,
+            });
+        }
+
+        // Shorts on secondary y-axis
+        if (data.shorts.length > 0) {
+            traces.push({
+                type: 'scatter',
+                mode: 'lines',
+                x: data.shorts.map(r => new Date(r[0])),
+                y: data.shorts.map(r => r[1]),
+                name: '% Short',
+                yaxis: 'y2',
+                line: { color: '#f59e0b', width: 1.5 },
+            });
+        }
+
+        return traces;
+    }
+
+    const layout = {
+        template: 'plotly_dark',
+        paper_bgcolor: '#030712',
+        plot_bgcolor:  '#030712',
+        margin: { t: 10, r: 60, b: 40, l: 60 },
+        xaxis: {
+            type: 'date',
+            gridcolor: '#1f2937',
+            rangeslider: { visible: true, bgcolor: '#111827', thickness: 0.05 },
+            rangeselector: {
+                bgcolor: '#1f2937',
+                activecolor: '#3b82f6',
+                font: { color: '#d1d5db' },
+                buttons: [
+                    { count: 1,  label: '1M',  step: 'month', stepmode: 'backward' },
+                    { count: 3,  label: '3M',  step: 'month', stepmode: 'backward' },
+                    { count: 6,  label: '6M',  step: 'month', stepmode: 'backward' },
+                    { count: 1,  label: '1Y',  step: 'year',  stepmode: 'backward' },
+                    { step: 'all', label: 'All' },
+                ],
+            },
+        },
+        yaxis:  { title: 'Price',   gridcolor: '#1f2937', fixedrange: false },
+        yaxis2: { title: '% Short', overlaying: 'y', side: 'right', showgrid: false, fixedrange: false },
+        legend: { bgcolor: 'rgba(0,0,0,0)', x: 0.01, y: 0.99 },
+        hovermode: 'x unified',
+    };
+
+    function renderChart() {
+        if (!chartData) return;
+        Plotly.react('chart', buildTraces(chartData, chartType), layout, {
+            responsive: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        });
+    }
+
+    fetch('/api/stock/' + symbol + '?start=' + start + '&end=' + end)
+        .then(r => r.json())
+        .then(data => { chartData = data; renderChart(); });
+
+    document.getElementById('btn-candle').addEventListener('click', function () {
+        chartType = 'candlestick';
+        this.className = 'px-3 py-1.5 text-sm bg-blue-700 text-white';
+        document.getElementById('btn-line').className = 'px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700';
+        renderChart();
+    });
+
+    document.getElementById('btn-line').addEventListener('click', function () {
+        chartType = 'line';
+        this.className = 'px-3 py-1.5 text-sm bg-blue-700 text-white';
+        document.getElementById('btn-candle').className = 'px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700';
+        renderChart();
+    });
+}());
+</script>
+{% endblock %}

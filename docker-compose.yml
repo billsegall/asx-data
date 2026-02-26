@@ -1,0 +1,9 @@
+services:
+  web:
+    build: ./www
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./stockdb:/stockdb:ro
+    environment:
+      - DATABASE=/stockdb/stockdb.db

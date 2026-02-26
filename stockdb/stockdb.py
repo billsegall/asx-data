@@ -59,6 +59,15 @@ class StockDB:
         c.execute('create table endofmonth (symbol text, date datetime, close real)')
         c.close()
 
+    def CreateIndexes(self):
+        '''Create indexes on endofday and shorts after population for query performance'''
+        c = self.db.cursor()
+        print("Creating indexes...")
+        c.execute('create index idx_endofday_symbol_date on endofday(symbol, date)')
+        c.execute('create index idx_shorts_symbol_date on shorts(symbol, date)')
+        c.execute('create index idx_shorts_3char_peak on shorts(symbol, short desc) where length(symbol) = 3')
+        c.close()
+
     def LookupSymbol(self, symbol):
         c = self.db.cursor()
         try:
@@ -335,6 +344,9 @@ if __name__ == "__main__":
         except Exception as error:
             print("Insert into endofmonth failed", error, row)
             sys.exit(1)
+
+    # Indexes — built after population for efficiency
+    stockdb.CreateIndexes()
 
     # Make it so
     stockdb.commit()

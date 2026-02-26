@@ -1,19 +1,25 @@
-<!DOCTYPE html>
-    <head>
-        <title>ASX</title>
-        <link rel="stylesheet" href='../static/style.css'/>
-    </head>
+{% extends "base.html" %}
 
-    <body>
-        <p>View list of <a href="/shorts-now">current short stocks</a></p>
-        <p>View list of <a href="/shorts-historical">historical short stocks</a></p>
-        <form method="POST" action="/stock">
-            <p>View individual stock
-            {{ form.csrf_token }}
-            <b>{{ form.symbol.label }}</b> {{ form.symbol(size=6) }}
-            <input type="submit" color="green", value="Submit"><p>
-        </form>
-    </body>
+{% block title %}ASX Data{% endblock %}
 
-{% include "footer.html" %}
-</html>
+{% block content %}
+<div class="flex flex-col items-center justify-center py-16 gap-8">
+    <h1 class="text-3xl font-bold text-white">ASX Stock Data</h1>
+    <p class="text-gray-400">Search for an ASX-listed company to view price history and short positions.</p>
+
+    <form method="GET" action="/stock" class="flex gap-3">
+        <input type="text" name="symbol" placeholder="e.g. CBA"
+               class="bg-gray-800 border border-gray-700 text-gray-100 text-lg rounded-lg px-5 py-3 w-40 focus:outline-none focus:border-blue-500 tracking-widest"
+               maxlength="5" autofocus style="text-transform:uppercase">
+        <button type="submit"
+                class="bg-blue-600 hover:bg-blue-500 text-white text-lg font-medium px-6 py-3 rounded-lg">
+            View Stock
+        </button>
+    </form>
+
+    <div class="flex gap-6 mt-4 text-sm text-gray-400">
+        <a href="/shorts-now" class="hover:text-white underline underline-offset-4">Current short positions</a>
+        <a href="/shorts-historical" class="hover:text-white underline underline-offset-4">Historical peak shorts</a>
+    </div>
+</div>
+{% endblock %}
