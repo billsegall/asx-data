@@ -93,6 +93,18 @@ if __name__ == "__main__":
     stockdb = StockDB(args.db, False)
     c = stockdb.cursor()
 
+    # A. Bulk-load PRAGMAs — safe because we build from scratch; if it fails we rebuild
+    c.execute('PRAGMA synchronous=OFF')
+    c.execute('PRAGMA journal_mode=OFF')
+    c.execute('PRAGMA cache_size=-65536')   # 64 MB page cache
+
+    # C. Date cache — only ~6000 unique trading dates across 6.9M EOD rows
+    _date_cache = {}
+    def parse_date(s):
+        if s not in _date_cache:
+            _date_cache[s] = time.mktime(time.strptime(s, '%Y%m%d'))
+        return _date_cache[s]
+
     # Symbols
     try:
         stockdb.CreateTableSymbols(args.drop)
@@ -282,18 +294,17 @@ if __name__ == "__main__":
                     date_index += 1
 
 
-    # Now add them all to the shorts table
-    for k, v in d_shorts.items():
-        try:
-            for date, percent in v[1]:
-                #print("try", date, percent)
-                c.execute('insert into shorts values (?, ?, ?)', (k, date, percent))
-        except:
-            print("Insert shorts", k, date, percent, "failed")
-            sys.exit(1)
+    # Now add them all to the shorts table — B. executemany
+    shorts_rows = [(k, date, pct) for k, v in d_shorts.items() for date, pct in v[1]]
+    try:
+        c.executemany('insert into shorts values (?, ?, ?)', shorts_rows)
+    except Exception as e:
+        print("Insert shorts failed:", e)
+        sys.exit(1)
 
-        # Some symbols will be delisted and not in our symbol list so add
-        # what we can ignoring errors
+    # Some symbols will be delisted and not in our symbol list so add
+    # what we can ignoring errors
+    for k, v in d_shorts.items():
         try:
             c.execute('insert into symbols values (?, ?, "Delisted", 0)', (k, v[0]))
         except Exception as e:
@@ -312,19 +323,15 @@ if __name__ == "__main__":
     # symbol | date | open | high | low | close | volume
     eod = 'asx-eod-data/eod.csv'
     print("Processing:", eod)
-    for row in csv.reader(open(eod, 'r')):
-        try:
-            c.execute('insert into endofday values (?, ?, ?, ?, ?, ?, ?)',
-                (row[0].strip(),
-                time.mktime(time.strptime(row[1].strip(), '%Y%m%d')),
-                float(row[2]),
-                float(row[3]),
-                float(row[4]),
-                float(row[5]),
-                int(row[6])))
-        except Exception as error:
-            print("Insert into endofday failed", error, row)
-            sys.exit(1)
+    def _eod_rows():
+        for row in csv.reader(open(eod, 'r')):
+            try:
+                yield (row[0].strip(), parse_date(row[1].strip()),
+                       float(row[2]), float(row[3]), float(row[4]), float(row[5]), int(row[6]))
+            except Exception as error:
+                print("Insert into endofday failed", error, row)
+                sys.exit(1)
+    c.executemany('insert into endofday values (?, ?, ?, ?, ?, ?, ?)', _eod_rows())
 
     # EndOfMonth
     try:
@@ -337,15 +344,14 @@ if __name__ == "__main__":
     # EOM data - The Makefile generates the subset of eod into eom.csv
     eom = 'asx-eod-data/eom.csv'
     print("Processing:", eom)
-    for row in csv.reader(open(eom, 'r')):
-        try:
-            c.execute('insert into endofmonth values (?, ?, ?)',
-                (row[0].strip(),
-                time.mktime(time.strptime(row[1].strip(), '%Y%m%d')),
-                float(row[5])))
-        except Exception as error:
-            print("Insert into endofmonth failed", error, row)
-            sys.exit(1)
+    def _eom_rows():
+        for row in csv.reader(open(eom, 'r')):
+            try:
+                yield (row[0].strip(), parse_date(row[1].strip()), float(row[5]))
+            except Exception as error:
+                print("Insert into endofmonth failed", error, row)
+                sys.exit(1)
+    c.executemany('insert into endofmonth values (?, ?, ?)', _eom_rows())
 
     # Indexes — built after population for efficiency
     stockdb.CreateIndexes()
