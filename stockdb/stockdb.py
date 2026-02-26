@@ -147,7 +147,9 @@ if __name__ == "__main__":
     filedateformats_2022 = {
         'shorts/2022.csv' : '%d/%m/%Y',
         'shorts/2023.csv' : '%d/%m/%Y',
-        'shorts/2024.csv' : '%d/%m/%Y'
+        'shorts/2024.csv' : '%d/%m/%Y',
+        'shorts/2025.csv' : '%d/%m/%Y',
+        'shorts/2026.csv' : '%d/%m/%Y',
     }
 
     # The ASX have some days with bad data
