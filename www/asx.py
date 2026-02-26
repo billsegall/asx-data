@@ -189,5 +189,4 @@ def api_shorts_now():
 @app.route('/privacy')
 def privacy():
     return render_template('privacy.html')
-<<<<<<< HEAD
 
