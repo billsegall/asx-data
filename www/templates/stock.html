@@ -101,15 +101,7 @@
         return traces;
     }
 
-    function makeLayout(data) {
-        // Default viewport: last 1 year of available data
-        var rangeStart = null, rangeEnd = null;
-        if (data.ohlcv.length > 0) {
-            rangeEnd   = new Date(data.ohlcv[data.ohlcv.length - 1][0]);
-            rangeStart = new Date(rangeEnd);
-            rangeStart.setFullYear(rangeStart.getFullYear() - 1);
-        }
-
+    function makeLayout() {
         return {
             template: 'plotly_dark',
             paper_bgcolor: '#030712',
@@ -118,7 +110,6 @@
             xaxis: {
                 type: 'date',
                 gridcolor: '#1f2937',
-                range: rangeStart ? [rangeStart.toISOString(), rangeEnd.toISOString()] : undefined,
                 rangeslider: { visible: true, bgcolor: '#111827', thickness: 0.05 },
                 rangeselector: {
                     bgcolor: '#1f2937',
@@ -143,31 +134,37 @@
         };
     }
 
-    function renderChart() {
+    function renderChart(activateDefault) {
         if (!chartData) return;
-        Plotly.react('chart', buildTraces(chartData, chartType), makeLayout(chartData), {
+        Plotly.react('chart', buildTraces(chartData, chartType), makeLayout(), {
             responsive: true,
             displaylogo: false,
             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        }).then(function () {
+            if (activateDefault) {
+                // Click the 1Y button (index 3: 1M, 3M, 6M, 1Y)
+                var btns = document.querySelectorAll('#chart .rangeselector .button');
+                if (btns[3]) btns[3].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            }
         });
     }
 
     fetch('/api/stock/' + symbol)
         .then(r => r.json())
-        .then(data => { chartData = data; renderChart(); });
+        .then(data => { chartData = data; renderChart(true); });
 
     document.getElementById('btn-candle').addEventListener('click', function () {
         chartType = 'candlestick';
         this.className = 'px-3 py-1.5 text-sm bg-blue-700 text-white';
         document.getElementById('btn-line').className = 'px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700';
-        renderChart();
+        renderChart(false);
     });
 
     document.getElementById('btn-line').addEventListener('click', function () {
         chartType = 'line';
         this.className = 'px-3 py-1.5 text-sm bg-blue-700 text-white';
         document.getElementById('btn-candle').className = 'px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700';
-        renderChart();
+        renderChart(false);
     });
 }());
 </script>
