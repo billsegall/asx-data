@@ -6,7 +6,7 @@
 import stockdb
 
 # System
-import datetime, math, os, sqlite3, time
+import datetime, math, os, time
 from flask import Flask, jsonify, request, render_template, send_from_directory
 
 app = Flask(__name__)
@@ -35,8 +35,6 @@ stocks = stockdb.StockDB(app.config['DATABASE'], False)
 c = stocks.cursor()
 c.execute('SELECT min(date), max(date) FROM endofday where symbol = "XAO"')
 xao_date_min, xao_date_max = c.fetchone()
-default_date_min = date2human(xao_date_max - 365 * 24 * 60 * 60)  # One year
-default_date_max = date2human(xao_date_max)
 print("Data available from %s to %s" % (date2human(xao_date_min), date2human(xao_date_max)))
 
 
@@ -48,9 +46,7 @@ def favicon():
 
 @app.route('/')
 def index():
-    return render_template('index.html',
-                           default_start=default_date_min,
-                           default_end=default_date_max)
+    return render_template('index.html')
 
 
 @app.route('/stock')

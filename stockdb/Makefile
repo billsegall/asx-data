@@ -7,8 +7,8 @@ SHORTS_CSV=shorts/2010.csv shorts/2011.csv shorts/2012.csv shorts/2013.csv short
 # What have data for, final year is partial (see below)
 YEARS=01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 21 22 23
 MONTHS=01 02 03 04 05 06 07 08 09 10 11 12
-PART_YEAR=2024
-PART_MONTHS=01 02 03 04 05 06 07
+PART_YEAR=2025
+PART_MONTHS=01 02 03 04 05 06 07 08 09
 
 all: $(DB)
 
