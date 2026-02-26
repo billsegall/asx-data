@@ -20,17 +20,22 @@ with that. Please contact me if that isn't the case.
 
 ## ASX symbol data
 
-Symbol data can be obtained from [listcorp](https://www.listcorp.com/asx)
-if you sign up for their newsletter (which is not bad).
+Symbol data is fetched from the [ASX official listed companies CSV](https://www.asx.com.au/asx/research/ASXListedCompanies.csv),
+which is updated nightly. Run `make fetch_symbols` (or `make fetch_all`) to refresh it.
+
+Market cap is sourced separately from periodic ListCorp snapshots stored in
+`stockdb/symbols/ASXListedCompanies-YYYYMMDD.csv`. The most recent snapshot
+is used automatically at DB build time and the date is recorded against each
+symbol so the web app can display it as "(as of {month year})".
 
 ## The database
 
 The database consists of three tables described below by example:
 
 ### symbols
-symbol | name | industry | mcap
------- | ---- | --- | ---
-BHP    | BHP BILLITON LIMITED ORDINARY | Materials | 108,172,000,000 
+symbol | name | industry | mcap | mcap_date
+------ | ---- | --- | --- | ---
+BHP    | BHP BILLITON LIMITED ORDINARY | Materials | 108,172,000,000 | 1730764800.0
 
 ### shorts
 symbol | date | short

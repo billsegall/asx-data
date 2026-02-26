@@ -64,7 +64,13 @@ def stock(symbol=None):
     if not symbol:
         return render_template('index.html')
 
-    name, industry, mcap = stocks.LookupSymbol(symbol)
+    name, industry, shares = stocks.LookupSymbol(symbol)
+    mcap = None
+    if shares:
+        lc = stocks.cursor()
+        row = lc.execute('SELECT close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1', (symbol,)).fetchone()
+        if row:
+            mcap = shares * row[0]
     return render_template('stock.html',
                            symbol=symbol,
                            name=name or symbol,
@@ -97,7 +103,13 @@ def api_stock(symbol):
 
     c = stocks.cursor()
 
-    name, industry, mcap = stocks.LookupSymbol(symbol)
+    name, industry, shares = stocks.LookupSymbol(symbol)
+    mcap = None
+    if shares:
+        lc = stocks.cursor()
+        row = lc.execute('SELECT close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1', (symbol,)).fetchone()
+        if row:
+            mcap = shares * row[0]
 
     c.execute(
         'SELECT date, open, high, low, close, volume FROM endofday '
@@ -125,7 +137,7 @@ def api_stock(symbol):
         'info': {
             'name': name,
             'industry': industry,
-            'mcap': mcap,
+            'mcap': millify(mcap) if mcap else None,
         },
         'ohlcv': ohlcv,
         'xao': xao,

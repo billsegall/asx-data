@@ -2,7 +2,7 @@
 # Copyright (c) 2019-2024, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import argparse, csv, locale, sqlite3, time, sys, cProfile, pstats, re
+import argparse, csv, glob, locale, sqlite3, time, sys, cProfile, pstats, re
 PROFILE=False
 
 class StockDB:
@@ -32,7 +32,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table symbols (symbol text primary key, name text, industry text, mcap real)')
+        c.execute('create table symbols (symbol text primary key, name text, industry text, shares real)')
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -71,11 +71,11 @@ class StockDB:
     def LookupSymbol(self, symbol):
         c = self.db.cursor()
         try:
-            name, industry, mcap = c.execute('select name,industry,mcap from symbols where symbol = ?', (symbol,)).fetchone()
+            name, industry, shares = c.execute('select name,industry,shares from symbols where symbol = ?', (symbol,)).fetchone()
         except Exception as e:
             print(e)
             return (None, None, None)
-        return (name, industry, mcap)
+        return (name, industry, shares)
 
 
 # When run we populate our database which requires some
@@ -112,23 +112,51 @@ if __name__ == "__main__":
         print("Database symbols already exists, Use --drop to recreate")
         sys.exit(1)
 
-    # Symbol data - see README.md for how that's obtained
-    # The input has CSV has one header rows and is then in the form:
-    # Code,Company,Listcorp-link,Market Cap,Last trade,Change, %Change", Sector
-    # Market Cap is strings of the form 123,456 so we need get ints from that
-    locale.setlocale( locale.LC_ALL, 'en_US.UTF-8')
-    symbols = 'symbols/ASXListedCompanies.csv'
-    print("Processing:", symbols)
-    reader = csv.reader(open(symbols, 'r'))
+    # Symbol names and industry from ASX official CSV (fetched by fetch_symbols.py)
+    # Format: Company name, ASX code, GICS industry group
+    symbols_official = 'symbols/asx-official.csv'
+    print("Processing:", symbols_official)
+    d_symbols = {}
+    reader = csv.reader(open(symbols_official, 'r'))
     for row in reader:
-        if reader.line_num >= 2: # There is no row 0, row 1 is header
+        if len(row) < 3 or not row[1].strip() or row[1].strip() == 'ASX code':
+            continue  # skip title, blank, and column header rows
+        try:
+            d_symbols[row[1].strip()] = (row[0].strip(), row[2].strip())
+        except Exception as error:
+            print("Parse symbols failed", error, row)
+            sys.exit(1)
+
+    # Shares outstanding derived from most recent ListCorp snapshot
+    # (ASXListedCompanies-YYYYMMDD.csv): shares = mcap / last_trade_price
+    # Format: Code (ASX:XXX), Company, Link, Market Cap, Last trade, Change, %Change, Sector
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    listcorp_files = sorted(glob.glob('symbols/ASXListedCompanies-????????.csv'))
+    d_shares = {}
+    if listcorp_files:
+        latest_listcorp = listcorp_files[-1]
+        print("Deriving shares outstanding from:", latest_listcorp)
+        reader = csv.reader(open(latest_listcorp, 'r'))
+        for row in reader:
+            if reader.line_num == 1:
+                continue  # header row
             try:
-                c.execute('insert into symbols values (?, ?, ?, ?)',
-                    (row[0][4:].strip(), row[1].strip(), row[7].strip(), locale.atof(row[3].strip())))
-                
-            except Exception as error:
-                print("Insert into symbols failed", error, row)
-                sys.exit(1)
+                symbol = row[0][4:].strip()  # strip "ASX:" prefix
+                mcap = locale.atof(row[3].strip())
+                price = float(row[4].strip())
+                if price:
+                    d_shares[symbol] = mcap / price
+            except Exception:
+                pass  # skip rows with missing/unparseable data
+
+    # Insert all symbols
+    for symbol, (name, industry) in d_symbols.items():
+        try:
+            c.execute('insert into symbols values (?, ?, ?, ?)',
+                (symbol, name, industry, d_shares.get(symbol, 0)))
+        except Exception as error:
+            print("Insert into symbols failed", error, symbol)
+            sys.exit(1)
 
 
     # Short data - see README.md for how that's obtained

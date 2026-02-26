@@ -12,7 +12,12 @@ PART_MONTHS=01 02 03 04 05 06 07
 
 all: $(DB)
 
-fetch_all:
+fetch_all: fetch_symbols fetch_shorts
+
+fetch_symbols:
+	python3 fetch_symbols.py
+
+fetch_shorts:
 	python3 fetch_shorts.py
 
 asx-eod-data/eod.csv asx-eod-data/eom.csv:
@@ -31,7 +36,7 @@ asx-eod-data/eod.csv asx-eod-data/eom.csv:
 	dos2unix asx-eod-data/eom.csv
 
 
-$(DB): $(SHORTS_CSV) stockdb.py asx-eod-data/eod.csv asx-eod-data/eom.csv symbols/ASXListedCompanies.csv
+$(DB): $(SHORTS_CSV) stockdb.py asx-eod-data/eod.csv asx-eod-data/eom.csv symbols/asx-official.csv
 	rm -f .$(DB)
 	stockdb.py  --db .$@
 	mv .$@ $@
