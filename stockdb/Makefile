@@ -12,6 +12,11 @@ PART_MONTHS=01 02 03 04 05 06 07 08 09
 
 all: $(DB)
 
+# fetch_eod is manual — eoddata.com requires a paid subscription for API access
+# Upgrade account then uncomment to enable:
+#   fetch_eod:
+#	EODDATA_USER=bill@segall.net EODDATA_PASS=yourpass python3 fetch_eod_soap.py
+
 fetch_all: fetch_symbols fetch_shorts
 
 fetch_symbols:
