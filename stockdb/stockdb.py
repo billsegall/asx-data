@@ -381,6 +381,13 @@ if __name__ == "__main__":
                 sys.exit(1)
     c.executemany('insert into endofmonth values (?, ?, ?)', _eom_rows())
 
+    # Fix known eoddata.com decimal-point artifacts in XAO index data.
+    # Legitimate XAO range is ~2500-10000; values outside 1500-20000 are 10x errors.
+    c.execute('''UPDATE endofday SET open=open/10, high=high/10, low=low/10, close=close/10
+                 WHERE symbol='XAO' AND close > 20000''')
+    c.execute('''UPDATE endofday SET open=open*10, high=high*10, low=low*10, close=close*10
+                 WHERE symbol='XAO' AND close < 1500''')
+
     # Indexes — built after population for efficiency
     stockdb.CreateIndexes()
 
