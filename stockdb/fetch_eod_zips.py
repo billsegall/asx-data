@@ -75,7 +75,7 @@ def login(user, pwd):
 
 
 def download_year(session, year):
-    dest = os.path.join(ZIPS_DIR, f'{year}.zip')
+    dest = os.path.join(ZIPS_DIR, f'ASX_{year}.zip')
     tmp  = dest + '.tmp'
     url  = ZIP_URL.format(year=year)
 

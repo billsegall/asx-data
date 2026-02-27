@@ -5,10 +5,10 @@ DB=stockdb.db
 SHORTS_CSV=shorts/2010.csv shorts/2011.csv shorts/2012.csv shorts/2013.csv shorts/2014.csv shorts/2015.csv shorts/2016.csv shorts/2017.csv shorts/2018.csv shorts/2019.csv shorts/2020.csv shorts/2021.csv shorts/2022.csv shorts/2023.csv shorts/2024.csv shorts/2025.csv shorts/2026.csv
 
 # What have data for, final year is partial (see below)
-YEARS=01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 21 22 23
+YEARS=01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 21 22 23 24 25
 MONTHS=01 02 03 04 05 06 07 08 09 10 11 12
-PART_YEAR=2025
-PART_MONTHS=01 02 03 04 05 06 07 08 09
+PART_YEAR=2026
+PART_MONTHS=01
 
 all: $(DB)
 
@@ -28,7 +28,7 @@ fetch_shorts:
 asx-eod-data/eod.csv asx-eod-data/eom.csv:
 	(mkdir asx-eod-data/tmp; \
 	cd asx-eod-data/tmp; \
-	for zip in ../zips/*.zip; do unzip $$zip; done; \
+	for zip in ../zips/*.zip; do unzip -o $$zip; done; \
 	grep -vh ticker * > ../eod.csv; \
 	(for year in $(YEARS); do for month in $(MONTHS); do \
 		ls -1 ASX_20$$year$$month??.txt | tail -1; \
