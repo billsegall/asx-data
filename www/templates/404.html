@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Not Found &mdash; ASX Data{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center py-24 gap-4 text-center">
+    <h1 class="text-6xl font-bold text-gray-700">404</h1>
+    <p class="text-xl text-white">Symbol not found</p>
+    <p class="text-gray-400">No price data is available for that symbol.</p>
+    <a href="/" class="mt-4 text-blue-400 hover:text-blue-300">&larr; Back to search</a>
+</div>
+{% endblock %}

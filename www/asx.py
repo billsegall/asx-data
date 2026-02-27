@@ -7,7 +7,7 @@ import stockdb
 
 # System
 import datetime, math, os, time
-from flask import Flask, jsonify, request, render_template, send_from_directory
+from flask import Flask, abort, jsonify, request, render_template, send_from_directory
 
 app = Flask(__name__)
 
@@ -59,6 +59,10 @@ def stock(symbol=None):
 
     if not symbol:
         return render_template('index.html')
+
+    c = stocks.cursor()
+    if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
+        abort(404)
 
     name, industry, shares = stocks.LookupSymbol(symbol)
     mcap = None
@@ -180,4 +184,9 @@ def api_shorts_now():
 @app.route('/privacy')
 def privacy():
     return render_template('privacy.html')
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('404.html'), 404
 
