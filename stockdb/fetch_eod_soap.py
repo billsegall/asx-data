@@ -4,14 +4,14 @@
 Appends new trading days to asx-eod-data/eod.csv and asx-eod-data/eom.csv,
 starting from the day after the last date already in eod.csv.
 
-Credentials via environment variables:
-    EODDATA_USER=billsegall
+Credentials are read from stockdb/.env:
+    EODDATA_USER=bill@segall.net
     EODDATA_PASS=yourpassword
 
 Usage:
-    EODDATA_USER=u EODDATA_PASS=p python3 fetch_eod_soap.py
-    EODDATA_USER=u EODDATA_PASS=p python3 fetch_eod_soap.py --from 20250906
-    EODDATA_USER=u EODDATA_PASS=p python3 fetch_eod_soap.py --from 20250906 --to 20250912
+    python3 fetch_eod_soap.py
+    python3 fetch_eod_soap.py --from 20250906
+    python3 fetch_eod_soap.py --from 20250906 --to 20250912
 """
 
 import argparse, csv, os, sys, time
@@ -19,6 +19,16 @@ from datetime import date, timedelta
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 import xml.etree.ElementTree as ET
+
+# Load .env from the same directory as this script
+_ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+if os.path.exists(_ENV_FILE):
+    with open(_ENV_FILE) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _k, _v = _line.split('=', 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 SOAP_URL  = 'https://ws.eoddata.com/data.asmx'
 NS        = 'https://ws.eoddata.com/Data'
