@@ -8,6 +8,14 @@
     <script>tailwind.config = { darkMode: 'class' }</script>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     {% block head %}{% endblock %}
+    <style>
+        .sym-dropdown { position:absolute; z-index:100; background:#1f2937; border:1px solid #374151;
+                        border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.5); min-width:220px; overflow:hidden; }
+        .sym-item { padding:8px 12px; cursor:pointer; display:flex; gap:10px; align-items:baseline; }
+        .sym-item:hover, .sym-item.active { background:#374151; }
+        .sym-ticker { color:#f3f4f6; font-weight:600; font-size:.85rem; min-width:3rem; }
+        .sym-name   { color:#9ca3af; font-size:.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
 
@@ -29,9 +37,11 @@
                     </div>
                     <!-- Quick search -->
                     <form method="GET" action="/stock" class="flex items-center gap-2">
+                        <div class="relative">
                         <input type="text" name="symbol" placeholder="Symbol&hellip;"
                                class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 w-24 focus:outline-none focus:border-blue-500"
-                               maxlength="5" style="text-transform:uppercase">
+                               maxlength="5" style="text-transform:uppercase" data-symbol-search autocomplete="off">
+                        </div>
                         <button type="submit"
                                 class="bg-blue-600 hover:bg-blue-500 text-white text-sm px-3 py-1.5 rounded">Go</button>
                     </form>
@@ -46,5 +56,70 @@
     </main>
 
     {% include "footer.html" %}
+
+<script>
+(function() {
+    function initAutocomplete(input) {
+        const wrap = input.parentElement;
+        const drop = document.createElement('div');
+        drop.className = 'sym-dropdown';
+        drop.hidden = true;
+        wrap.appendChild(drop);
+
+        let timer, activeIdx = -1, items = [];
+
+        function show(results) {
+            items = results;
+            activeIdx = -1;
+            drop.innerHTML = '';
+            results.forEach((r, i) => {
+                const el = document.createElement('div');
+                el.className = 'sym-item';
+                el.innerHTML = `<span class="sym-ticker">${r.symbol}</span><span class="sym-name">${r.name || ''}</span>`;
+                el.addEventListener('mousedown', e => { e.preventDefault(); navigate(r.symbol); });
+                drop.appendChild(el);
+            });
+            drop.hidden = results.length === 0;
+        }
+
+        function navigate(symbol) {
+            drop.hidden = true;
+            window.location.href = '/stock/' + symbol;
+        }
+
+        function setActive(idx) {
+            const els = drop.querySelectorAll('.sym-item');
+            els.forEach(el => el.classList.remove('active'));
+            activeIdx = Math.max(-1, Math.min(idx, els.length - 1));
+            if (activeIdx >= 0) {
+                els[activeIdx].classList.add('active');
+                input.value = items[activeIdx].symbol;
+            }
+        }
+
+        input.addEventListener('input', () => {
+            clearTimeout(timer);
+            const q = input.value.trim();
+            if (q.length === 0) { drop.hidden = true; return; }
+            timer = setTimeout(async () => {
+                const resp = await fetch('/api/symbols?q=' + encodeURIComponent(q));
+                show(await resp.json());
+            }, 150);
+        });
+
+        input.addEventListener('keydown', e => {
+            if (drop.hidden) return;
+            if (e.key === 'ArrowDown')  { e.preventDefault(); setActive(activeIdx + 1); }
+            if (e.key === 'ArrowUp')    { e.preventDefault(); setActive(activeIdx - 1); }
+            if (e.key === 'Escape')     { drop.hidden = true; }
+            if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); navigate(items[activeIdx].symbol); }
+        });
+
+        input.addEventListener('blur', () => setTimeout(() => { drop.hidden = true; }, 150));
+    }
+
+    document.querySelectorAll('[data-symbol-search]').forEach(initAutocomplete);
+})();
+</script>
 </body>
 </html>

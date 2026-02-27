@@ -141,6 +141,23 @@ def api_stock(symbol):
     })
 
 
+@app.route('/api/symbols')
+def api_symbols():
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify([])
+    c = stocks.cursor()
+    pattern = q.upper() + '%'
+    like    = '%' + q.upper() + '%'
+    c.execute('''
+        SELECT symbol, name FROM symbols
+        WHERE symbol LIKE ? OR upper(name) LIKE ?
+        ORDER BY CASE WHEN symbol LIKE ? THEN 0 ELSE 1 END, symbol
+        LIMIT 10
+    ''', (pattern, like, pattern))
+    return jsonify([{'symbol': r[0], 'name': r[1]} for r in c.fetchall()])
+
+
 @app.route('/shorts-historical')
 def shorts_historical():
     return render_template('shorts-historical.html')

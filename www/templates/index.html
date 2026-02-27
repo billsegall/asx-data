@@ -8,9 +8,11 @@
     <p class="text-gray-400">Search for an ASX-listed company to view price history and short positions.</p>
 
     <form method="GET" action="/stock" class="flex gap-3">
+        <div class="relative">
         <input type="text" name="symbol" placeholder="e.g. CBA"
                class="bg-gray-800 border border-gray-700 text-gray-100 text-lg rounded-lg px-5 py-3 w-40 focus:outline-none focus:border-blue-500 tracking-widest"
-               maxlength="5" autofocus style="text-transform:uppercase">
+               maxlength="5" autofocus style="text-transform:uppercase" data-symbol-search autocomplete="off">
+        </div>
         <button type="submit"
                 class="bg-blue-600 hover:bg-blue-500 text-white text-lg font-medium px-6 py-3 rounded-lg">
             View Stock
