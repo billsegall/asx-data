@@ -35,22 +35,22 @@ The database consists of three tables described below by example:
 ### symbols
 symbol | name | industry | shares
 ------ | ---- | --- | ------
-BHP    | BHP BILLITON LIMITED ORDINARY | Materials | 5,326,000,000
+BHP    | BHP GROUP LIMITED | Materials | 5,102,905,054
 
 ### shorts
 symbol | date | short
 ------ | ---- | -------
-BHP    | 1281571200.0 | 0.66
+BHP    | 1771509600 | 0.95
 
 ### endofday
 symbol | date | open | high | low | close | volume
 ------ | ---- | ---- | ---- | --- | ----- | ------
-BHP    | 1281657600.0 | 42.75 | 43.26 | 42.71 | 43.08 | 3691070
+BHP    | 1769522400 | 50.50 | 50.86 | 49.88 | 50.60 | 10,136,377
 
 ### endofmonth
 symbol | date | close
 ------ | ---- | -----
-BHP    | 1281657600.0 | 43.08
+BHP    | 1769522400 | 50.60
 
 # Web application
 
@@ -67,9 +67,9 @@ docker compose up      # Docker (mounts DB as read-only volume)
 ## Features
 
 - **Stock page** (`/stock/<symbol>`) — interactive candlestick/line chart with
-  XAO overlay, short interest on a secondary axis, and range selector buttons
-  (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / All). Defaults to a 1Y viewport over
-  the full available history.
-- **Current shorts** (`/shorts-now`) — latest short positions, client-side sortable
-- **Historical shorts** (`/shorts-historical`) — peak short positions per symbol
+  XAO overlay, short interest on a secondary axis, volume subplot, and range
+  selector buttons (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / All). Defaults to a
+  1Y viewport. Supports normalised comparison with a second symbol via the
+  "vs." input.
+- **Shorts** (`/shorts`) — latest short positions, sortable, filterable by symbol or company name
 - **Market cap** — computed live from shares outstanding × latest close price
