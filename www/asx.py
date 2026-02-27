@@ -162,13 +162,13 @@ def api_symbols():
     return jsonify([{'symbol': r[0], 'name': r[1]} for r in c.fetchall()])
 
 
-@app.route('/shorts-now')
-def shorts_now():
-    return render_template('shorts-now.html')
+@app.route('/shorts')
+def shorts():
+    return render_template('shorts.html')
 
 
-@app.route('/api/shorts-now')
-def api_shorts_now():
+@app.route('/api/shorts')
+def api_shorts():
     c = stocks.cursor()
     c.execute('''SELECT s.symbol, max(s.date), s.short, sym.name
                  FROM shorts s LEFT JOIN symbols sym ON s.symbol = sym.symbol

@@ -95,7 +95,7 @@ function fmtDate(yyyymmdd) {
     return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-fetch('/api/shorts-now')
+fetch('/api/shorts')
     .then(function (r) { return r.json(); })
     .then(function (resp) {
         tableData = resp.data;
