@@ -25,16 +25,8 @@
             <div class="flex items-center justify-between h-14">
                 <a href="/" class="text-white font-semibold text-lg tracking-tight">ASX Data</a>
                 <div class="flex items-center gap-6">
-                    <!-- Shorts dropdown -->
-                    <div class="relative group">
-                        <button class="text-gray-300 hover:text-white text-sm flex items-center gap-1">
-                            Shorts <span class="text-xs">&#x25BE;</span>
-                        </button>
-                        <div class="absolute right-0 mt-1 w-40 bg-gray-800 border border-gray-700 rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                            <a href="/shorts-now" class="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700">Current</a>
-                            <a href="/shorts-historical" class="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700">Historical</a>
-                        </div>
-                    </div>
+                    <!-- Shorts link -->
+                    <a href="/shorts-now" class="text-gray-300 hover:text-white text-sm">Shorts</a>
                     <!-- Quick search -->
                     <form method="GET" action="/stock" class="flex items-center gap-2">
                         <div class="relative">

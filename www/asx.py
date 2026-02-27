@@ -158,19 +158,6 @@ def api_symbols():
     return jsonify([{'symbol': r[0], 'name': r[1]} for r in c.fetchall()])
 
 
-@app.route('/shorts-historical')
-def shorts_historical():
-    return render_template('shorts-historical.html')
-
-
-@app.route('/api/shorts-historical')
-def api_shorts_historical():
-    c = stocks.cursor()
-    c.execute('SELECT symbol, date, max(short) FROM shorts WHERE length(symbol) = 3 GROUP BY symbol ORDER BY short DESC')
-    rows = [{'symbol': r[0], 'date': date2human(r[1]), 'short': r[2]} for r in c.fetchall()]
-    return jsonify(rows)
-
-
 @app.route('/shorts-now')
 def shorts_now():
     return render_template('shorts-now.html')
@@ -181,7 +168,10 @@ def api_shorts_now():
     c = stocks.cursor()
     c.execute('SELECT symbol, max(date), short FROM shorts WHERE length(symbol) = 3 GROUP BY symbol ORDER BY date DESC, short DESC')
     rows = [{'symbol': r[0], 'date': date2human(r[1]), 'short': r[2]} for r in c.fetchall()]
-    return jsonify(rows)
+    lc = stocks.cursor()
+    lc.execute('SELECT max(date) FROM shorts')
+    latest = lc.fetchone()[0]
+    return jsonify({'data': rows, 'latest_date': date2human(latest) if latest else None})
 
 
 @app.route('/privacy')

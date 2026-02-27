@@ -58,12 +58,18 @@ function sortTable(col) {
     renderTable(tableData);
 }
 
+function fmtDate(yyyymmdd) {
+    if (!yyyymmdd) return '';
+    var d = new Date(yyyymmdd.slice(0,4), yyyymmdd.slice(4,6)-1, yyyymmdd.slice(6,8));
+    return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 fetch('/api/shorts-now')
     .then(function (r) { return r.json(); })
-    .then(function (data) {
-        tableData = data;
-        if (data.length > 0) {
-            document.getElementById('as-of').textContent = 'as of ' + data[0].date;
+    .then(function (resp) {
+        tableData = resp.data;
+        if (resp.latest_date) {
+            document.getElementById('as-of').textContent = 'as of ' + fmtDate(resp.latest_date);
         }
         renderTable(tableData);
     });
