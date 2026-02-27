@@ -187,6 +187,26 @@ def privacy():
     return render_template('privacy.html')
 
 
+@app.route('/announcements')
+def announcements():
+    return render_template('announcements.html')
+
+
+@app.route('/api/announcements')
+def api_announcements_all():
+    qs = 'limit=' + request.args.get('limit', '200')
+    for key in ('date', 'ticker', 'price_sensitive'):
+        val = request.args.get(key)
+        if val:
+            qs += '&' + key + '=' + val
+    url = app.config['ANNOUNCEMENTS_URL'] + '/announcements?' + qs
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception:
+        return jsonify([])
+
+
 @app.route('/api/announcements/<symbol>')
 def api_announcements(symbol):
     symbol = symbol.strip().upper()
