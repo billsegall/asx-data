@@ -16,30 +16,74 @@
         </div>
         <div id="price-stats" class="flex flex-wrap gap-4 mt-1 text-sm"></div>
     </div>
-    <!-- Chart type toggle -->
-    <div class="flex rounded overflow-hidden border border-gray-700 self-start">
-        <button type="button" id="btn-candle"
-                class="px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700">Candlestick</button>
-        <button type="button" id="btn-line"
-                class="px-3 py-1.5 text-sm bg-blue-700 text-white">Line</button>
+    <div class="flex items-center gap-3 self-start">
+        <!-- Compare input -->
+        <div class="flex items-center gap-2">
+            <span class="text-sm text-gray-500">vs.</span>
+            <input id="compare-input" type="text" placeholder="Symbol&hellip;"
+                   class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-2 py-1.5 w-24 focus:outline-none focus:border-blue-500"
+                   maxlength="5" style="text-transform:uppercase" autocomplete="off">
+            <button id="compare-clear" hidden
+                    class="text-gray-500 hover:text-white text-sm px-1">&times;</button>
+        </div>
+        <!-- Chart type toggle -->
+        <div class="flex rounded overflow-hidden border border-gray-700">
+            <button type="button" id="btn-candle"
+                    class="px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700">Candlestick</button>
+            <button type="button" id="btn-line"
+                    class="px-3 py-1.5 text-sm bg-blue-700 text-white">Line</button>
+        </div>
     </div>
 </div>
 
 <!-- Chart container -->
 <div id="chart" class="w-full rounded-lg overflow-hidden" style="height:560px;"></div>
-<p class="text-xs text-gray-600 mt-1">XAO index is scaled to the stock&rsquo;s price range for visual comparison only.</p>
+<p id="xao-note" class="text-xs text-gray-600 mt-1">XAO index is scaled to the stock&rsquo;s price range for visual comparison only.</p>
 
 <script>
 (function () {
     const symbol = {{ symbol | tojson }};
 
-    let chartType = 'line';
-    let chartData = null;
+    let chartType   = 'line';
+    let chartData   = null;
+    let compareData = null;
+
+    // Return ohlcv normalised to 100 at the first entry on or after refTs
+    function normalise(ohlcv, refTs) {
+        var base = null;
+        for (var i = 0; i < ohlcv.length; i++) {
+            if (ohlcv[i][0] >= refTs) { base = ohlcv[i][4]; break; }
+        }
+        if (!base) return [];
+        return ohlcv.filter(r => r[0] >= refTs).map(r => [r[0], r[4] / base * 100]);
+    }
 
     function buildTraces(data, type) {
         const traces = [];
-        const hasVolume = data.ohlcv.some(r => r[5] > 0);
 
+        if (compareData) {
+            // Comparison mode: normalise both to 100 at first shared date
+            const refTs = Math.max(data.ohlcv[0][0], compareData.ohlcv[0][0]);
+            const n1 = normalise(data.ohlcv, refTs);
+            const n2 = normalise(compareData.ohlcv, refTs);
+            traces.push({
+                type: 'scatter', mode: 'lines',
+                x: n1.map(r => new Date(r[0])), y: n1.map(r => r[1]),
+                name: symbol,
+                yaxis: 'y',
+                line: { color: '#60a5fa', width: 1.5 },
+            });
+            traces.push({
+                type: 'scatter', mode: 'lines',
+                x: n2.map(r => new Date(r[0])), y: n2.map(r => r[1]),
+                name: compareData.symbol,
+                yaxis: 'y',
+                line: { color: '#f59e0b', width: 1.5 },
+            });
+            return { traces, priceDomain: [0, 1.0], hasVolume: false, isCompare: true };
+        }
+
+        const hasVolume  = data.ohlcv.some(r => r[5] > 0);
         const priceDomain = hasVolume ? [0.28, 1.0] : [0, 1.0];
 
         if (type === 'candlestick') {
@@ -117,10 +161,10 @@
             });
         }
 
-        return { traces, priceDomain, hasVolume };
+        return { traces, priceDomain, hasVolume, isCompare: false };
     }
 
-    function makeLayout(priceDomain, hasVolume) {
+    function makeLayout(priceDomain, hasVolume, isCompare) {
         const layout = {
             template: 'plotly_dark',
             paper_bgcolor: '#030712',
@@ -146,11 +190,16 @@
                     ],
                 },
             },
-            yaxis:  { title: 'Price',   gridcolor: '#1f2937', fixedrange: false, domain: priceDomain },
-            yaxis2: { title: '% Short', overlaying: 'y', side: 'right', showgrid: false, fixedrange: false },
+            yaxis: {
+                title: isCompare ? 'Indexed (base = 100)' : 'Price',
+                gridcolor: '#1f2937', fixedrange: false, domain: priceDomain,
+            },
             legend: { bgcolor: 'rgba(0,0,0,0)', x: 0.01, y: 0.99 },
             hovermode: 'x unified',
         };
+        if (!isCompare) {
+            layout.yaxis2 = { title: '% Short', overlaying: 'y', side: 'right', showgrid: false, fixedrange: false };
+        }
         if (hasVolume) {
             layout.yaxis3 = {
                 domain: [0, 0.22],
@@ -164,14 +213,14 @@
 
     function renderChart(activateDefault) {
         if (!chartData) return;
-        const { traces, priceDomain, hasVolume } = buildTraces(chartData, chartType);
-        Plotly.react('chart', traces, makeLayout(priceDomain, hasVolume), {
+        const { traces, priceDomain, hasVolume, isCompare } = buildTraces(chartData, chartType);
+        document.getElementById('xao-note').hidden = isCompare;
+        Plotly.react('chart', traces, makeLayout(priceDomain, hasVolume, isCompare), {
             responsive: true,
             displaylogo: false,
             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
         }).then(function () {
             if (activateDefault) {
-                // Click the 1Y button (index 3: 1M, 3M, 6M, 1Y)
                 var btns = document.querySelectorAll('#chart .rangeselector .button');
                 if (btns[3]) btns[3].dispatchEvent(new MouseEvent('click', { bubbles: true }));
             }
@@ -221,6 +270,27 @@
         chartType = 'line';
         this.className = 'px-3 py-1.5 text-sm bg-blue-700 text-white';
         document.getElementById('btn-candle').className = 'px-3 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700';
+        renderChart(false);
+    });
+
+    document.getElementById('compare-input').addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const sym = this.value.trim().toUpperCase();
+        if (!sym || sym === symbol) return;
+        fetch('/api/stock/' + sym)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.ohlcv || data.ohlcv.length === 0) { this.value = ''; return; }
+                compareData = data;
+                document.getElementById('compare-clear').hidden = false;
+                renderChart(false);
+            });
+    });
+
+    document.getElementById('compare-clear').addEventListener('click', function () {
+        compareData = null;
+        document.getElementById('compare-input').value = '';
+        this.hidden = true;
         renderChart(false);
     });
 }());
