@@ -14,7 +14,7 @@ app = Flask(__name__)
 # Application config
 app.config.update(
     DATABASE          = os.environ.get('DATABASE', '../stockdb/stockdb.db'),
-    ANNOUNCEMENTS_URL = os.environ.get('ANNOUNCEMENTS_URL', 'http://harri.segall.net:8081'),
+    ANNOUNCEMENTS_URL = os.environ.get('ANNOUNCEMENTS_URL', 'https://harri.segall.net:8081'),
 )
 
 ## Utility functions
