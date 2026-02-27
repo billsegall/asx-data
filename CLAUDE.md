@@ -22,7 +22,8 @@ docker compose up
 - App must run both inside Docker (via compose) and directly via `./asx`
 - DB is never copied into the Docker image — always mounted as a read-only volume
 - DATABASE path is configured via env var; defaults to `../stockdb/stockdb.db` for local use
-- Always rebuild the DB and restart the server before committing, so changes can be tested first
+- Always restart the server before committing, so changes can be tested first
+- **Restart is required for all changes** (Python files AND templates) — Flask 3.x only auto-reloads templates when `debug=True`, and our server runs with `debug=False`
 
 ## Data Pipeline (`stockdb/`)
 

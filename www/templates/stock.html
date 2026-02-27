@@ -36,6 +36,9 @@
 
     function buildTraces(data, type) {
         const traces = [];
+        const hasVolume = data.ohlcv.some(r => r[5] > 0);
+
+        const priceDomain = hasVolume ? [0.28, 1.0] : [0, 1.0];
 
         if (type === 'candlestick') {
             traces.push({
@@ -98,11 +101,25 @@
             });
         }
 
-        return traces;
+        // Volume bars (green = up day, red = down day)
+        if (hasVolume) {
+            traces.push({
+                type: 'bar',
+                x: data.ohlcv.map(r => new Date(r[0])),
+                y: data.ohlcv.map(r => r[5]),
+                name: 'Volume',
+                yaxis: 'y3',
+                marker: { color: data.ohlcv.map(r => r[4] >= r[1] ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)') },
+                showlegend: false,
+                hovertemplate: '%{y:,.0f}<extra>Volume</extra>',
+            });
+        }
+
+        return { traces, priceDomain, hasVolume };
     }
 
-    function makeLayout() {
-        return {
+    function makeLayout(priceDomain, hasVolume) {
+        const layout = {
             template: 'plotly_dark',
             paper_bgcolor: '#030712',
             plot_bgcolor:  '#030712',
@@ -110,7 +127,7 @@
             xaxis: {
                 type: 'date',
                 gridcolor: '#1f2937',
-                rangeslider: { visible: true, bgcolor: '#111827', thickness: 0.05 },
+                rangeslider: { visible: true, bgcolor: '#111827', thickness: 0.04 },
                 rangeselector: {
                     bgcolor: '#1f2937',
                     activecolor: '#3b82f6',
@@ -127,16 +144,26 @@
                     ],
                 },
             },
-            yaxis:  { title: 'Price',   gridcolor: '#1f2937', fixedrange: false },
+            yaxis:  { title: 'Price',   gridcolor: '#1f2937', fixedrange: false, domain: priceDomain },
             yaxis2: { title: '% Short', overlaying: 'y', side: 'right', showgrid: false, fixedrange: false },
             legend: { bgcolor: 'rgba(0,0,0,0)', x: 0.01, y: 0.99 },
             hovermode: 'x unified',
         };
+        if (hasVolume) {
+            layout.yaxis3 = {
+                domain: [0, 0.22],
+                gridcolor: '#1f2937',
+                fixedrange: true,
+                showticklabels: false,
+            };
+        }
+        return layout;
     }
 
     function renderChart(activateDefault) {
         if (!chartData) return;
-        Plotly.react('chart', buildTraces(chartData, chartType), makeLayout(), {
+        const { traces, priceDomain, hasVolume } = buildTraces(chartData, chartType);
+        Plotly.react('chart', traces, makeLayout(priceDomain, hasVolume), {
             responsive: true,
             displaylogo: false,
             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
