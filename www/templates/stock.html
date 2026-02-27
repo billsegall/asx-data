@@ -14,6 +14,7 @@
             {% if industry %}<span>{{ industry }}</span>{% endif %}
             {% if mcap %}<span>Market Cap: ${{ mcap }}</span>{% endif %}
         </div>
+        <div id="price-stats" class="flex flex-wrap gap-4 mt-1 text-sm"></div>
     </div>
     <!-- Chart type toggle -->
     <div class="flex rounded overflow-hidden border border-gray-700 self-start">
@@ -176,9 +177,37 @@
         });
     }
 
+    function renderStats(ohlcv) {
+        if (ohlcv.length < 2) return;
+
+        const last     = ohlcv[ohlcv.length - 1];
+        const prev     = ohlcv[ohlcv.length - 2];
+        const lastDate = new Date(last[0]);
+        const close    = last[4];
+        const change   = close - prev[4];
+        const changePct = (change / prev[4]) * 100;
+
+        // 52-week window
+        const cutoff = last[0] - 52 * 7 * 24 * 3600 * 1000;
+        const window = ohlcv.filter(r => r[0] >= cutoff);
+        const high52 = Math.max(...window.map(r => r[2]));
+        const low52  = Math.min(...window.map(r => r[3]));
+
+        const fmt   = n => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const color = change >= 0 ? 'text-green-400' : 'text-red-400';
+        const sign  = change >= 0 ? '+' : '';
+        const dateStr = lastDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+
+        document.getElementById('price-stats').innerHTML =
+            `<span class="text-gray-200 font-medium">${fmt(close)}</span>` +
+            `<span class="${color}">${sign}${fmt(change)} (${sign}${changePct.toFixed(2)}%)</span>` +
+            `<span class="text-gray-500">as of ${dateStr}</span>` +
+            `<span class="text-gray-500">52w <span class="text-green-500">${fmt(high52)}</span> / <span class="text-red-500">${fmt(low52)}</span></span>`;
+    }
+
     fetch('/api/stock/' + symbol)
         .then(r => r.json())
-        .then(data => { chartData = data; renderChart(true); });
+        .then(data => { chartData = data; renderChart(true); renderStats(data.ohlcv); });
 
     document.getElementById('btn-candle').addEventListener('click', function () {
         chartType = 'candlestick';
