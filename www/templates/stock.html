@@ -40,6 +40,12 @@
 <div id="chart" class="w-full rounded-lg overflow-hidden" style="height:560px;"></div>
 <p id="xao-note" class="text-xs text-gray-600 mt-1">XAO index is scaled to the stock&rsquo;s price range for visual comparison only.</p>
 
+<!-- Announcements -->
+<div class="mt-8">
+    <h2 class="text-base font-semibold text-gray-300 mb-2">Announcements</h2>
+    <div id="announcements" class="text-sm text-gray-500">Loading&hellip;</div>
+</div>
+
 <script>
 (function () {
     const symbol = {{ symbol | tojson }};
@@ -293,6 +299,54 @@
         this.hidden = true;
         renderChart(false);
     });
+
+    // Announcements
+    var allAnn = [];
+    var annShown = 5;
+
+    function fmtAnnDate(iso) {
+        var d = new Date(iso);
+        return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function renderAnn() {
+        var el = document.getElementById('announcements');
+        if (allAnn.length === 0) {
+            el.innerHTML = '<p class="text-gray-600">No announcements found.</p>';
+            return;
+        }
+        var html = '';
+        var slice = allAnn.slice(0, annShown);
+        for (var i = 0; i < slice.length; i++) {
+            var a = slice[i];
+            var badge = a.price_sensitive
+                ? '<span class="ml-2 px-1.5 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300">Price sensitive</span>'
+                : '';
+            var pages = a.page_count ? '<span class="text-gray-600 ml-2">' + a.page_count + 'pp</span>' : '';
+            html += '<div class="flex items-baseline gap-3 py-2 border-t border-gray-800">' +
+                '<span class="text-gray-500 font-mono shrink-0">' + fmtAnnDate(a.announced_at) + '</span>' +
+                '<a href="/api/announcements/' + a.ids_id + '/pdf" target="_blank" ' +
+                'class="text-blue-400 hover:text-blue-300">' + a.headline + '</a>' +
+                badge + pages +
+                '</div>';
+        }
+        if (allAnn.length > annShown) {
+            var rem = allAnn.length - annShown;
+            html += '<button onclick="showMoreAnn()" ' +
+                'class="mt-2 text-blue-400 hover:text-blue-300 text-sm">Show ' + rem + ' more&hellip;</button>';
+        }
+        el.innerHTML = html;
+    }
+
+    function showMoreAnn() { annShown = allAnn.length; renderAnn(); }
+
+    fetch('/api/announcements/' + symbol)
+        .then(function (r) { return r.json(); })
+        .then(function (data) { allAnn = data; renderAnn(); })
+        .catch(function () {
+            document.getElementById('announcements').innerHTML =
+                '<p class="text-gray-600">Announcements unavailable.</p>';
+        });
 }());
 </script>
 {% endblock %}

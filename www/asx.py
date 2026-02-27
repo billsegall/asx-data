@@ -6,14 +6,15 @@
 import stockdb
 
 # System
-import datetime, math, os, time
-from flask import Flask, abort, jsonify, request, render_template, send_from_directory
+import datetime, json, math, os, time, urllib.request
+from flask import Flask, abort, jsonify, redirect, request, render_template, send_from_directory
 
 app = Flask(__name__)
 
 # Application config
 app.config.update(
-    DATABASE = os.environ.get('DATABASE', '../stockdb/stockdb.db')
+    DATABASE          = os.environ.get('DATABASE', '../stockdb/stockdb.db'),
+    ANNOUNCEMENTS_URL = os.environ.get('ANNOUNCEMENTS_URL', 'http://harri.segall.net:8081'),
 )
 
 ## Utility functions
@@ -184,6 +185,22 @@ def api_shorts():
 @app.route('/privacy')
 def privacy():
     return render_template('privacy.html')
+
+
+@app.route('/api/announcements/<symbol>')
+def api_announcements(symbol):
+    symbol = symbol.strip().upper()
+    url = app.config['ANNOUNCEMENTS_URL'] + '/announcements?ticker=' + symbol + '&limit=25'
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception:
+        return jsonify([])
+
+
+@app.route('/api/announcements/<ids_id>/pdf')
+def api_announcement_pdf(ids_id):
+    return redirect(app.config['ANNOUNCEMENTS_URL'] + '/announcements/' + ids_id + '/pdf')
 
 
 @app.errorhandler(404)
