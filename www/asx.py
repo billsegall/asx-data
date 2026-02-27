@@ -166,8 +166,11 @@ def shorts_now():
 @app.route('/api/shorts-now')
 def api_shorts_now():
     c = stocks.cursor()
-    c.execute('SELECT symbol, max(date), short FROM shorts WHERE length(symbol) = 3 GROUP BY symbol ORDER BY date DESC, short DESC')
-    rows = [{'symbol': r[0], 'date': date2human(r[1]), 'short': r[2]} for r in c.fetchall()]
+    c.execute('''SELECT s.symbol, max(s.date), s.short, sym.name
+                 FROM shorts s LEFT JOIN symbols sym ON s.symbol = sym.symbol
+                 WHERE length(s.symbol) = 3
+                 GROUP BY s.symbol ORDER BY s.date DESC, s.short DESC''')
+    rows = [{'symbol': r[0], 'date': date2human(r[1]), 'short': r[2], 'name': r[3] or ''} for r in c.fetchall()]
     lc = stocks.cursor()
     lc.execute('SELECT max(date) FROM shorts')
     latest = lc.fetchone()[0]

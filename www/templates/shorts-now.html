@@ -4,10 +4,20 @@
 
 {% block content %}
 <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
-    <h1 class="text-2xl font-bold text-white">Current Short Positions <span id="as-of" class="text-gray-500 font-normal text-lg"></span></h1>
-    <input id="filter" type="text" placeholder="Filter by symbol&hellip;"
-           class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 w-48 focus:outline-none focus:border-blue-500"
-           style="text-transform:uppercase" autocomplete="off">
+    <h1 class="text-2xl font-bold text-white">
+        Current Short Positions
+        <span id="as-of" class="text-gray-500 font-normal text-lg"></span>
+        <span id="count" class="text-gray-500 font-normal text-base ml-2"></span>
+    </h1>
+    <div class="flex items-center gap-4">
+        <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
+            <input id="hide-zero" type="checkbox" checked class="accent-blue-500 w-4 h-4">
+            Hide zero positions
+        </label>
+        <input id="filter" type="text" placeholder="Filter by symbol or company name&hellip;"
+               class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 w-80 focus:outline-none focus:border-blue-500"
+               style="text-transform:uppercase" autocomplete="off">
+    </div>
 </div>
 
 <div class="overflow-x-auto rounded-lg border border-gray-800">
@@ -15,8 +25,9 @@
         <thead>
             <tr class="bg-gray-900 text-gray-400 text-left select-none">
                 <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(0)">Symbol &#x21C5;</th>
-                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(1)">Date &#x21C5;</th>
-                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(2)">Short % &#x21C5;</th>
+                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(1)">Name &#x21C5;</th>
+                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(2)">Date &#x21C5;</th>
+                <th class="px-4 py-3 font-medium hover:text-white cursor-pointer" onclick="sortTable(3)">Short % &#x21C5;</th>
             </tr>
         </thead>
         <tbody id="tbody">
@@ -42,20 +53,27 @@ function renderTable(rows) {
         var r = rows[i];
         html += '<tr>' +
             '<td class="px-4 py-2"><a href="/stock/' + r.symbol + '" class="text-blue-400 hover:text-blue-300 font-mono font-medium">' + r.symbol + '</a></td>' +
+            '<td class="px-4 py-2 text-gray-300">' + r.name + '</td>' +
             '<td class="px-4 py-2 text-gray-400 font-mono">' + r.date + '</td>' +
             '<td class="px-4 py-2 text-gray-300">' + r.short.toFixed(2) + '%</td>' +
             '</tr>';
     }
-    document.getElementById('tbody').innerHTML = html;
+    document.getElementById('tbody').innerHTML = html || '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-500">No results</td></tr>';
+    document.getElementById('count').textContent = '(' + rows.length + ' symbols displayed)';
 }
 
 function filteredData() {
-    var q = document.getElementById('filter').value.toUpperCase();
-    return q ? tableData.filter(function (r) { return r.symbol.indexOf(q) !== -1; }) : tableData;
+    var q        = document.getElementById('filter').value.toUpperCase();
+    var hideZero = document.getElementById('hide-zero').checked;
+    return tableData.filter(function (r) {
+        if (hideZero && r.short === 0) return false;
+        if (q && r.symbol.indexOf(q) === -1 && r.name.toUpperCase().indexOf(q) === -1) return false;
+        return true;
+    });
 }
 
 function sortTable(col) {
-    var keys = ['symbol', 'date', 'short'];
+    var keys = ['symbol', 'name', 'date', 'short'];
     var key  = keys[col];
     sortDir[col] = !sortDir[col];
     tableData.sort(function (a, b) {
@@ -67,9 +85,8 @@ function sortTable(col) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-    document.getElementById('filter').addEventListener('input', function () {
-        renderTable(filteredData());
-    });
+    document.getElementById('filter').addEventListener('input', function () { renderTable(filteredData()); });
+    document.getElementById('hide-zero').addEventListener('change', function () { renderTable(filteredData()); });
 });
 
 function fmtDate(yyyymmdd) {
