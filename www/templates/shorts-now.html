@@ -3,8 +3,11 @@
 {% block title %}ASX Shorts &mdash; Current{% endblock %}
 
 {% block content %}
-<div class="mb-4">
+<div class="flex flex-wrap items-center justify-between gap-4 mb-4">
     <h1 class="text-2xl font-bold text-white">Current Short Positions <span id="as-of" class="text-gray-500 font-normal text-lg"></span></h1>
+    <input id="filter" type="text" placeholder="Filter by symbol&hellip;"
+           class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 w-48 focus:outline-none focus:border-blue-500"
+           style="text-transform:uppercase" autocomplete="off">
 </div>
 
 <div class="overflow-x-auto rounded-lg border border-gray-800">
@@ -46,6 +49,11 @@ function renderTable(rows) {
     document.getElementById('tbody').innerHTML = html;
 }
 
+function filteredData() {
+    var q = document.getElementById('filter').value.toUpperCase();
+    return q ? tableData.filter(function (r) { return r.symbol.indexOf(q) !== -1; }) : tableData;
+}
+
 function sortTable(col) {
     var keys = ['symbol', 'date', 'short'];
     var key  = keys[col];
@@ -55,8 +63,14 @@ function sortTable(col) {
         var cmp = (typeof va === 'number') ? va - vb : String(va).localeCompare(String(vb));
         return sortDir[col] ? cmp : -cmp;
     });
-    renderTable(tableData);
+    renderTable(filteredData());
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('filter').addEventListener('input', function () {
+        renderTable(filteredData());
+    });
+});
 
 function fmtDate(yyyymmdd) {
     if (!yyyymmdd) return '';
@@ -71,7 +85,7 @@ fetch('/api/shorts-now')
         if (resp.latest_date) {
             document.getElementById('as-of').textContent = 'as of ' + fmtDate(resp.latest_date);
         }
-        renderTable(tableData);
+        renderTable(filteredData());
     });
 </script>
 {% endblock %}
