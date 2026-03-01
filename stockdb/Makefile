@@ -42,9 +42,8 @@ asx-eod-data/eod.csv asx-eod-data/eom.csv:
 
 
 $(DB): $(SHORTS_CSV) stockdb.py asx-eod-data/eod.csv asx-eod-data/eom.csv symbols/asx-official.csv
-	rm -f .$(DB)
-	stockdb.py  --db .$@
-	mv .$@ $@
+	stockdb.py --db /tmp/.$(DB)
+	mv /tmp/.$(DB) $@
 
 clean:
 	@rm -f asx-eod-data/eod.csv asx-eod-data/eom.csv stockdb.db
