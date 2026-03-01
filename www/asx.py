@@ -6,7 +6,7 @@
 import stockdb
 
 # System
-import datetime, json, math, os, time, urllib.request
+import datetime, json, math, os, re, time, urllib.request
 from flask import Flask, abort, jsonify, redirect, request, render_template, send_from_directory
 
 app = Flask(__name__)
@@ -192,13 +192,22 @@ def announcements():
     return render_template('announcements.html')
 
 
+def valid_ticker(ticker):
+    return bool(re.fullmatch(r'[A-Z]{2,5}', ticker))
+
 @app.route('/api/announcements')
 def api_announcements_all():
     qs = 'limit=' + request.args.get('limit', '200')
-    for key in ('date', 'ticker', 'price_sensitive'):
+    for key in ('date', 'price_sensitive'):
         val = request.args.get(key)
         if val:
             qs += '&' + key + '=' + val
+    ticker = request.args.get('ticker', '')
+    if ticker:
+        ticker = ticker.strip().upper()
+        if not valid_ticker(ticker):
+            abort(400)
+        qs += '&ticker=' + ticker
     url = app.config['ANNOUNCEMENTS_URL'] + '/announcements?' + qs
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
@@ -210,6 +219,8 @@ def api_announcements_all():
 @app.route('/api/announcements/<symbol>')
 def api_announcements(symbol):
     symbol = symbol.strip().upper()
+    if not valid_ticker(symbol):
+        abort(400)
     url = app.config['ANNOUNCEMENTS_URL'] + '/announcements?ticker=' + symbol + '&limit=25'
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
@@ -220,6 +231,8 @@ def api_announcements(symbol):
 
 @app.route('/api/announcements/<ids_id>/pdf')
 def api_announcement_pdf(ids_id):
+    if not re.fullmatch(r'[0-9]+', ids_id):
+        abort(400)
     return redirect(app.config['ANNOUNCEMENTS_URL'] + '/announcements/' + ids_id + '/pdf')
 
 
