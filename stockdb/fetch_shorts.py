@@ -39,6 +39,11 @@ def download(year, entry):
     print(f'{year}: downloading {url}')
     try:
         urllib.request.urlretrieve(url, outfile)
+        with open(outfile, 'rb') as f:
+            data = f.read()
+        data = data.replace(b'\r\n', b'\n')
+        with open(outfile, 'wb') as f:
+            f.write(data)
         size = os.path.getsize(outfile)
         print(f'{year}: saved {size:,} bytes → {outfile}')
         return True
