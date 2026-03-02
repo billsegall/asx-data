@@ -1,12 +1,23 @@
 services:
+  backend:
+    build: ./backend
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./stockdb:/stockdb:ro
+    environment:
+      - DATABASE=/stockdb/stockdb.db
+
   web:
     build: ./www
     ports:
       - "5000:5000"
     volumes:
-      - ./stockdb:/stockdb:ro
       - ./userdata:/userdata
     environment:
-      - DATABASE=/stockdb/stockdb.db
+      - BACKEND_URL=http://backend:8082
+      - ANNOUNCEMENTS_URL=${ANNOUNCEMENTS_URL:-https://harri.tailb1cff.ts.net:8081}
       - USERS_DB=/userdata/users.db
       - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - backend

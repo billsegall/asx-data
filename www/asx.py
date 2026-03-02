@@ -2,11 +2,8 @@
 # Copyright (c) 2019-2021, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-# Local
-import stockdb
-
 # System
-import datetime, json, math, os, re, secrets, sqlite3, time, urllib.request
+import datetime, json, os, re, requests, secrets, sqlite3, time, urllib.request
 from flask import Flask, abort, jsonify, redirect, request, render_template, send_from_directory, url_for
 from flask_login import LoginManager, UserMixin, login_required, login_user, logout_user, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -15,7 +12,7 @@ app = Flask(__name__)
 
 # Application config
 app.config.update(
-    DATABASE          = os.environ.get('DATABASE', '../stockdb/stockdb.db'),
+    BACKEND_URL       = os.environ.get('BACKEND_URL', 'http://localhost:8082'),
     ANNOUNCEMENTS_URL = os.environ.get('ANNOUNCEMENTS_URL', 'https://harri.tailb1cff.ts.net:8081'),
     USERS_DB          = os.environ.get('USERS_DB', '../stockdb/users.db'),
     SECRET_KEY        = os.environ.get('SECRET_KEY', secrets.token_hex(32)),
@@ -217,134 +214,21 @@ def _check_list_owner(list_id, user_id, conn):
     return row
 
 
-_enrich_cache = {}   # symbol -> (cached_at, metrics_dict)
-_ENRICH_TTL   = 300  # seconds
-
 def enrich_symbols(symbols):
-    """Return dict of symbol -> metrics from stockdb. Batched queries with per-symbol cache."""
+    """Return dict of symbol -> metrics from backend API."""
     if not symbols:
         return {}
-
-    now_ts = time.time()
-    result = {}
-    stale  = []
-    for s in symbols:
-        entry = _enrich_cache.get(s)
-        if entry and now_ts - entry[0] < _ENRICH_TTL:
-            result[s] = entry[1]
-        else:
-            result[s] = {}
-            stale.append(s)
-
-    if not stale:
-        return result
-
-    placeholders = ','.join('?' * len(stale))
-    c   = stocks.cursor()
-    now = datetime.datetime.now()
-
-    # Query 1+3 combined: last 30 days relative to the most-recent row for these
-    # symbols (index range scan, no window fn). Anchored to max(date) so stale
-    # data still works correctly.
-    c.execute(f'SELECT MAX(date) FROM endofday WHERE symbol IN ({placeholders})', stale)
-    max_eod_date = c.fetchone()[0] or 0
-    recent_cutoff = max_eod_date - 30 * 86400
-    c.execute(f'''
-        SELECT symbol, date, close, volume FROM endofday
-        WHERE symbol IN ({placeholders}) AND date >= ?
-        ORDER BY symbol, date DESC
-    ''', stale + [recent_cutoff])
-    recent_by_sym = {}
-    for row in c.fetchall():
-        recent_by_sym.setdefault(row[0], []).append((row[1], row[2], row[3]))
-
-    week_cutoff = (now - datetime.timedelta(days=7)).timestamp()
-    for sym, rows in recent_by_sym.items():
-        # Price / change_1d (first 2 rows)
-        price = rows[0][1]
-        result[sym]['price']  = price
-        result[sym]['volume'] = rows[0][2]
-        if len(rows) >= 2:
-            prev = rows[1][1]
-            result[sym]['change_1d']     = round(price - prev, 4)
-            result[sym]['change_1d_pct'] = round((price - prev) / prev * 100, 2) if prev else None
-        # 1W return (rows ordered DESC; find earliest within 7-day window)
-        candidates = [r for r in rows if r[0] <= week_cutoff] or rows
-        ref = candidates[-1][1]
-        if ref:
-            result[sym]['change_1w_pct'] = round((price - ref) / ref * 100, 2)
-
-    # Query 2: monthly closes for period returns
-    lookbacks = {
-        'change_1m_pct': now - datetime.timedelta(days=31),
-        'change_3m_pct': now - datetime.timedelta(days=92),
-        'change_6m_pct': now - datetime.timedelta(days=183),
-        'change_1y_pct': now - datetime.timedelta(days=365),
-        'change_3y_pct': now - datetime.timedelta(days=365*3),
-        'change_5y_pct': now - datetime.timedelta(days=365*5),
-    }
-    cutoff_ts = min(dt.timestamp() for dt in lookbacks.values())
-    c.execute(f'''
-        SELECT symbol, date, close FROM endofmonth
-        WHERE symbol IN ({placeholders}) AND date >= ?
-        ORDER BY symbol, date ASC
-    ''', stale + [cutoff_ts])
-    monthly = {}
-    for row in c.fetchall():
-        monthly.setdefault(row[0], []).append((row[1], row[2]))
-
-    import bisect
-    for sym, rows in monthly.items():
-        price = result[sym].get('price')
-        if not price or not rows:
-            continue
-        dates = [r[0] for r in rows]
-        for key, target_dt in lookbacks.items():
-            idx = bisect.bisect_left(dates, target_dt.timestamp())
-            ref_price = rows[idx][1] if idx < len(rows) else (rows[-1][1] if rows else None)
-            if ref_price:
-                result[sym][key] = round((price - ref_price) / ref_price * 100, 2)
-
-    # Query 3: 52W high/low
-    cutoff_52w = (now - datetime.timedelta(days=365)).timestamp()
-    c.execute(f'''
-        SELECT symbol, MAX(high), MIN(low) FROM endofday
-        WHERE symbol IN ({placeholders}) AND date >= ?
-        GROUP BY symbol
-    ''', stale + [cutoff_52w])
-    for row in c.fetchall():
-        result[row[0]]['high_52w'] = row[1]
-        result[row[0]]['low_52w']  = row[2]
-
-    # Query 4: latest short %
-    c.execute(f'''
-        SELECT s.symbol, s.short FROM shorts s
-        INNER JOIN (
-            SELECT symbol, MAX(date) as max_date FROM shorts
-            WHERE symbol IN ({placeholders})
-            GROUP BY symbol
-        ) m ON s.symbol = m.symbol AND s.date = m.max_date
-    ''', stale)
-    for row in c.fetchall():
-        result[row[0]]['short_pct'] = row[1]
-
-    # Query 5: shares for mcap, name, industry
-    c.execute(f'''
-        SELECT symbol, name, industry, shares FROM symbols
-        WHERE symbol IN ({placeholders})
-    ''', stale)
-    for row in c.fetchall():
-        result[row[0]]['name']     = row[1]
-        result[row[0]]['industry'] = row[2]
-        price = result[row[0]].get('price')
-        if row[3] and price:
-            result[row[0]]['mcap'] = millify(row[3] * price)
-
-    # Store in cache
-    for s in stale:
-        _enrich_cache[s] = (now_ts, result[s])
-
-    return result
+    try:
+        resp = requests.post(
+            app.config['BACKEND_URL'] + '/api/enrich',
+            json={'symbols': list(symbols)},
+            timeout=10,
+        )
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return {s: {} for s in symbols}
 
 
 @login_manager.user_loader
@@ -370,24 +254,15 @@ def auth_checks():
 
 ## Utility functions
 
-def date2human(date):
-    t = datetime.datetime.fromtimestamp(date)
-    return t.strftime('%Y%m%d')
-
-
-def millify(n):
-    millnames = ['',' Thousand',' Million',' Billion',' Trillion']
-    n = float(n)
-    millidx = max(0,min(len(millnames)-1, int(math.floor(0 if n == 0 else math.log10(abs(n))/3))))
-    return '{:.0f}{}'.format(n / 10**(3 * millidx), millnames[millidx])
-
-
-# Open our database and grab some useful info from it
-stocks = stockdb.StockDB(app.config['DATABASE'], False)
-c = stocks.cursor()
-c.execute('SELECT min(date), max(date) FROM endofday where symbol = "XAO"')
-xao_date_min, xao_date_max = c.fetchone()
-print("Data available from %s to %s" % (date2human(xao_date_min), date2human(xao_date_max)))
+def _backend_get(path, **kwargs):
+    """GET from backend API. Returns parsed JSON or None on error."""
+    try:
+        resp = requests.get(app.config['BACKEND_URL'] + path, timeout=10, **kwargs)
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return None
 
 
 ## Auth routes
@@ -523,22 +398,14 @@ def stock(symbol=None):
     if not symbol:
         return render_template('index.html')
 
-    c = stocks.cursor()
-    if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
+    info = _backend_get(f'/api/symbol/{symbol}')
+    if info is None:
         abort(404)
-
-    name, industry, shares = stocks.LookupSymbol(symbol)
-    mcap = None
-    if shares:
-        lc = stocks.cursor()
-        row = lc.execute('SELECT close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1', (symbol,)).fetchone()
-        if row:
-            mcap = shares * row[0]
     return render_template('stock.html',
                            symbol=symbol,
-                           name=name or symbol,
-                           industry=industry or '',
-                           mcap=millify(mcap) if mcap else '')
+                           name=info.get('name') or symbol,
+                           industry=info.get('industry') or '',
+                           mcap=info.get('mcap') or '')
 
 
 @app.context_processor
@@ -553,60 +420,11 @@ def utility_processor():
 @login_required
 def api_stock(symbol):
     symbol = symbol.strip().upper()
-    start_str = request.args.get('start')
-    end_str = request.args.get('end')
-
-    try:
-        start_ts = time.mktime(time.strptime(start_str, '%Y%m%d')) if start_str else 0
-    except Exception:
-        start_ts = 0
-    try:
-        end_ts = time.mktime(time.strptime(end_str, '%Y%m%d')) if end_str else time.time()
-    except Exception:
-        end_ts = time.time()
-
-    c = stocks.cursor()
-
-    name, industry, shares = stocks.LookupSymbol(symbol)
-    mcap = None
-    if shares:
-        lc = stocks.cursor()
-        row = lc.execute('SELECT close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1', (symbol,)).fetchone()
-        if row:
-            mcap = shares * row[0]
-
-    c.execute(
-        'SELECT date, open, high, low, close, volume FROM endofday '
-        'WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC',
-        (symbol, start_ts, end_ts)
-    )
-    ohlcv = [[int(r[0]) * 1000, r[1], r[2], r[3], r[4], r[5]] for r in c.fetchall()]
-
-    c.execute(
-        'SELECT date, close FROM endofday '
-        'WHERE symbol = "XAO" AND date >= ? AND date <= ? ORDER BY date ASC',
-        (start_ts, end_ts)
-    )
-    xao = [[int(r[0]) * 1000, r[1]] for r in c.fetchall()]
-
-    c.execute(
-        'SELECT date, short FROM shorts '
-        'WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC',
-        (symbol, start_ts, end_ts)
-    )
-    shorts = [[int(r[0]) * 1000, r[1]] for r in c.fetchall()]
-
-    return jsonify({
-        'symbol': symbol,
-        'info': {
-            'name': name,
-            'industry': industry,
-            'mcap': millify(mcap) if mcap else None,
-        },
-        'ohlcv': ohlcv,
-        'xao': xao,
-        'shorts': shorts,
-    })
+    params = {k: v for k, v in [('start', request.args.get('start')), ('end', request.args.get('end'))] if v}
+    data = _backend_get(f'/api/stock/{symbol}', params=params)
+    if data is None:
+        abort(404)
+    return jsonify(data)
 
 
 @app.route('/api/symbols')
@@ -615,16 +433,8 @@ def api_symbols():
     q = request.args.get('q', '').strip()
     if not q:
         return jsonify([])
-    c = stocks.cursor()
-    pattern = q.upper() + '%'
-    like    = '%' + q.upper() + '%'
-    c.execute('''
-        SELECT symbol, name FROM symbols
-        WHERE symbol LIKE ? OR upper(name) LIKE ?
-        ORDER BY CASE WHEN symbol LIKE ? THEN 0 ELSE 1 END, symbol
-        LIMIT 10
-    ''', (pattern, like, pattern))
-    return jsonify([{'symbol': r[0], 'name': r[1]} for r in c.fetchall()])
+    data = _backend_get('/api/symbols', params={'q': q})
+    return jsonify(data or [])
 
 
 @app.route('/shorts')
@@ -636,16 +446,10 @@ def shorts():
 @app.route('/api/shorts')
 @login_required
 def api_shorts():
-    c = stocks.cursor()
-    c.execute('''SELECT s.symbol, max(s.date), s.short, sym.name
-                 FROM shorts s LEFT JOIN symbols sym ON s.symbol = sym.symbol
-                 WHERE length(s.symbol) = 3
-                 GROUP BY s.symbol ORDER BY s.date DESC, s.short DESC''')
-    rows = [{'symbol': r[0], 'date': date2human(r[1]), 'short': r[2], 'name': r[3] or ''} for r in c.fetchall()]
-    lc = stocks.cursor()
-    lc.execute('SELECT max(date) FROM shorts')
-    latest = lc.fetchone()[0]
-    return jsonify({'data': rows, 'latest_date': date2human(latest) if latest else None})
+    data = _backend_get('/api/shorts')
+    if data is None:
+        return jsonify({'data': [], 'latest_date': None})
+    return jsonify(data)
 
 
 @app.route('/privacy')

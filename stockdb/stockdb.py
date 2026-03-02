@@ -32,7 +32,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table symbols (symbol text primary key, name text, industry text, shares real)')
+        c.execute('create table if not exists symbols (symbol text primary key, name text, industry text, shares real)')
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -40,7 +40,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists shorts')
-        c.execute('create table shorts (symbol text, date datetime, short real)')
+        c.execute('create table if not exists shorts (symbol text, date datetime, short real)')
         c.close()
 
     def CreateTableEndOfDay(self, drop):
@@ -106,9 +106,9 @@ if __name__ == "__main__":
     build_symbols = args.symbols or not partial
     build_shorts  = args.shorts  or not partial
     build_eod     = args.eod     or not partial
-    drop_symbols  = args.drop or args.symbols
-    drop_shorts   = args.drop or args.shorts
-    drop_eod      = args.drop or args.eod
+    drop_symbols  = args.drop
+    drop_shorts   = args.drop
+    drop_eod      = args.drop
 
     if PROFILE:
         cProfile.run('re.compile("foo|bar")')
@@ -129,11 +129,7 @@ if __name__ == "__main__":
         return _date_cache[s]
 
     if build_symbols:
-        try:
-            stockdb.CreateTableSymbols(drop_symbols)
-        except sqlite3.OperationalError as error:
-            print("Database symbols already exists, Use --drop to recreate")
-            sys.exit(1)
+        stockdb.CreateTableSymbols(drop_symbols)
 
         # Symbol names and industry from ASX official CSV (fetched by fetch_symbols.py)
         # Format: Company name, ASX code, GICS industry group
@@ -172,10 +168,10 @@ if __name__ == "__main__":
                 except Exception:
                     pass  # skip rows with missing/unparseable data
 
-        # Insert all symbols
+        # Insert all symbols (INSERT OR REPLACE handles incremental updates)
         for symbol, (name, industry) in d_symbols.items():
             try:
-                c.execute('insert into symbols values (?, ?, ?, ?)',
+                c.execute('insert or replace into symbols values (?, ?, ?, ?)',
                     (symbol, name, industry, d_shares.get(symbol, 0)))
             except Exception as error:
                 print("Insert into symbols failed", error, symbol)
@@ -232,11 +228,10 @@ if __name__ == "__main__":
             baddates.append(time.mktime(time.strptime(date, "%d %B %Y")))
 
         # table shorts: symbol -> (date, short) mappings
-        try:
-            stockdb.CreateTableShorts(drop_shorts)
-        except sqlite3.OperationalError as error:
-            print("Database shorts already exists, Use --drop to recreate")
-            sys.exit(1)
+        stockdb.CreateTableShorts(drop_shorts)
+
+        # For incremental updates, only insert rows newer than what's already in the DB
+        max_existing_shorts = c.execute('SELECT MAX(date) FROM shorts').fetchone()[0] or 0
 
         d_shorts = {}
 
@@ -346,7 +341,10 @@ if __name__ == "__main__":
                         date_index += 1
 
         # Now add them all to the shorts table — B. executemany
-        shorts_rows = [(k, date, pct) for k, v in d_shorts.items() for date, pct in v[1]]
+        # Skip rows already in DB (incremental update: only insert dates > max existing)
+        shorts_rows = [(k, date, pct) for k, v in d_shorts.items() for date, pct in v[1]
+                       if date > max_existing_shorts]
+        print(f"Inserting {len(shorts_rows)} new shorts rows (max existing date: {max_existing_shorts})")
         try:
             c.executemany('insert into shorts values (?, ?, ?)', shorts_rows)
         except Exception as e:

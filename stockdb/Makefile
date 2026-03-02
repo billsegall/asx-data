@@ -19,6 +19,9 @@ all: $(DB)
 
 fetch_all: fetch_symbols fetch_shorts
 
+# update: incremental refresh of symbols + shorts without touching endofday/endofmonth
+update: fetch_symbols fetch_shorts
+
 fetch_symbols:
 	python3 fetch_symbols.py
 	python3 stockdb.py --db $(DB) --symbols
