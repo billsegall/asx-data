@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-# Stock data REST API — backend service for asx-data.
+# Stock data REST API — backend service for asx-data. Deploy via deploy.sh.
 # Runs on harri alongside asx-announcements. No user auth; internal on Tailscale.
 # Frontend calls this instead of importing stockdb directly.
 
