@@ -438,7 +438,7 @@ function fmtCell(key, v, item) {
     if (v === null || v === undefined) return '<span class="text-gray-600">—</span>';
     if (key === 'symbol') return `<a href="/stock/${v}" class="text-blue-400 hover:text-blue-300 font-mono font-medium">${v}</a>`;
     if (key === 'name') {
-        if (item && item.notes) { const tip = escHtml(item.notes.slice(0, 500)); return `<span class="text-gray-300" data-note="${tip}" style="cursor:default">${escHtml(String(v))} <span style="color:#6b7280;font-size:.65rem;vertical-align:middle">&#x25CF;</span></span>`; }
+        if (item && item.notes) { const tip = escHtml(item.notes.slice(0, 500)); return `<span class="text-gray-300" data-note="${tip}" style="cursor:default">${escHtml(String(v))} <span style="font-size:.7rem;vertical-align:middle;opacity:.6">🗒</span></span>`; }
         return `<span class="text-gray-300">${escHtml(String(v))}</span>`;
     }
     if (key === 'industry') return `<span class="text-gray-300">${escHtml(String(v))}</span>`;
