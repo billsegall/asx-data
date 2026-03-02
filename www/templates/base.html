@@ -28,6 +28,12 @@
                     <!-- Shorts link -->
                     <a href="/shorts" class="text-gray-300 hover:text-white text-sm">Shorts</a>
                     <a href="/announcements" class="text-gray-300 hover:text-white text-sm">Announcements</a>
+                    {% if current_user.is_authenticated and current_user.is_admin %}
+                    <a href="/admin" class="text-gray-300 hover:text-white text-sm">Admin</a>
+                    {% endif %}
+                    {% if current_user.is_authenticated %}
+                    <a href="/logout" class="text-gray-400 hover:text-white text-sm">Logout</a>
+                    {% endif %}
                     <!-- Quick search -->
                     <form method="GET" action="/stock" class="flex items-center gap-2">
                         <div class="relative">

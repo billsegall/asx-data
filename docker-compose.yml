@@ -5,5 +5,8 @@ services:
       - "5000:5000"
     volumes:
       - ./stockdb:/stockdb:ro
+      - ./userdata:/userdata
     environment:
       - DATABASE=/stockdb/stockdb.db
+      - USERS_DB=/userdata/users.db
+      - SECRET_KEY=${SECRET_KEY}
