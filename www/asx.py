@@ -73,6 +73,7 @@ WATCHLIST_COLUMNS = [
     {'key': 'mcap',          'label': 'Mkt Cap',  'default': False},
     {'key': 'short_pct',     'label': 'Short %',  'default': True,  'portfolio_default': False},
     {'key': 'volume',        'label': 'Volume',   'default': True,  'portfolio_default': False},
+    {'key': 'notes',         'label': 'Notes',    'default': False},
 ]
 
 PORTFOLIO_EXTRA_COLUMNS = [
@@ -84,6 +85,7 @@ PORTFOLIO_EXTRA_COLUMNS = [
     {'key': 'current_value',  'label': 'Value',     'default': True},
     {'key': 'pnl',            'label': 'P&L $',     'default': True},
     {'key': 'pnl_pct',        'label': 'P&L %',     'default': True},
+    {'key': 'alloc_pct',      'label': 'Alloc %',   'default': True},
 ]
 
 PORTFOLIO_COLUMNS = WATCHLIST_COLUMNS + PORTFOLIO_EXTRA_COLUMNS
@@ -124,9 +126,14 @@ def init_users_db():
             id       INTEGER PRIMARY KEY AUTOINCREMENT,
             list_id  INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
             symbol   TEXT NOT NULL,
+            notes    TEXT,
             position INTEGER NOT NULL DEFAULT 0,
             UNIQUE(list_id, symbol)
         )''')
+        try:
+            conn.execute('ALTER TABLE watchlist_items ADD COLUMN notes TEXT')
+        except sqlite3.OperationalError:
+            pass
 
         conn.execute('''CREATE TABLE IF NOT EXISTS portfolio_items (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -870,7 +877,7 @@ def api_list_items_get(list_id):
         list_type = lst['type']
         if list_type == 'watchlist':
             rows = conn.execute(
-                'SELECT id, symbol, position FROM watchlist_items WHERE list_id = ? ORDER BY position, id',
+                'SELECT id, symbol, notes, position FROM watchlist_items WHERE list_id = ? ORDER BY position, id',
                 (list_id,)
             ).fetchall()
             items = [dict(r) for r in rows]
@@ -919,13 +926,14 @@ def api_list_items_create(list_id):
         if not symbol:
             abort(400)
         if list_type == 'watchlist':
+            notes = data.get('notes') or None
             try:
                 cur = conn.execute(
-                    'INSERT INTO watchlist_items (list_id, symbol, position) VALUES (?, ?, 0)',
-                    (list_id, symbol)
+                    'INSERT INTO watchlist_items (list_id, symbol, notes, position) VALUES (?, ?, ?, 0)',
+                    (list_id, symbol, notes)
                 )
                 conn.commit()
-                item = dict(conn.execute('SELECT id, symbol, position FROM watchlist_items WHERE id = ?', (cur.lastrowid,)).fetchone())
+                item = dict(conn.execute('SELECT id, symbol, notes, position FROM watchlist_items WHERE id = ?', (cur.lastrowid,)).fetchone())
             except sqlite3.IntegrityError:
                 abort(409)  # duplicate
         else:
@@ -981,8 +989,18 @@ def api_list_items_patch(list_id, item_id):
     data = request.get_json(force=True)
     with users_db() as conn:
         lst = _check_list_owner(list_id, current_user.id, conn)
-        if lst['type'] != 'portfolio':
-            abort(400)
+        if lst['type'] == 'watchlist':
+            row = conn.execute('SELECT id FROM watchlist_items WHERE id = ? AND list_id = ?', (item_id, list_id)).fetchone()
+            if not row:
+                abort(404)
+            conn.execute('UPDATE watchlist_items SET notes = ? WHERE id = ?', (data.get('notes') or None, item_id))
+            conn.commit()
+            item = dict(conn.execute('SELECT id, symbol, notes, position FROM watchlist_items WHERE id = ?', (item_id,)).fetchone())
+            metrics = enrich_symbols([item['symbol']])
+            item.update(metrics.get(item['symbol'], {}))
+            return jsonify(item)
+
+        # Portfolio
         row = conn.execute('SELECT id FROM portfolio_items WHERE id = ? AND list_id = ?', (item_id, list_id)).fetchone()
         if not row:
             abort(404)
