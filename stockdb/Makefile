@@ -21,9 +21,11 @@ fetch_all: fetch_symbols fetch_shorts
 
 fetch_symbols:
 	python3 fetch_symbols.py
+	python3 stockdb.py --db $(DB) --symbols
 
 fetch_shorts:
 	python3 fetch_shorts.py
+	python3 stockdb.py --db $(DB) --shorts
 
 asx-eod-data/eod.csv asx-eod-data/eom.csv:
 	(mkdir asx-eod-data/tmp; \
