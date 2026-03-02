@@ -17,6 +17,20 @@
         <div id="price-stats" class="flex flex-wrap gap-4 mt-1 text-sm"></div>
     </div>
     <div class="flex items-center gap-3 self-start">
+        <!-- Watchlist button -->
+        <div class="relative" id="wl-wrap">
+            <button id="wl-btn" onclick="toggleWlDropdown()"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-gray-700 bg-gray-800 text-gray-300 hover:text-white hover:border-gray-500">
+                <span id="wl-star">&#9733;</span> Watchlist
+            </button>
+            <div id="wl-dropdown" hidden
+                 class="absolute left-0 mt-1 w-52 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 py-1 text-sm">
+                <div id="wl-list"><p class="px-4 py-2 text-gray-500">Loading&hellip;</p></div>
+                <div class="border-t border-gray-800 mt-1 pt-1 px-3 pb-2">
+                    <button onclick="createAndAddWatchlist()" class="text-xs text-blue-400 hover:text-blue-300">+ New watchlist</button>
+                </div>
+            </div>
+        </div>
         <!-- Compare input -->
         <div class="flex items-center gap-2">
             <span class="text-sm text-gray-500">vs.</span>
@@ -347,6 +361,120 @@
             document.getElementById('announcements').innerHTML =
                 '<p class="text-gray-600">Announcements unavailable.</p>';
         });
+}());
+
+// ── Watchlist dropdown ────────────────────────────────────────────────────────
+(function () {
+    var symbol = {{ symbol | tojson }};
+    var wlLists = [];
+    var wlLoaded = false;
+
+    function updateStarBtn() {
+        var anyIn = wlLists.some(function (l) { return l.has_symbol; });
+        var btn = document.getElementById('wl-btn');
+        if (anyIn) {
+            btn.classList.add('border-yellow-600', 'text-yellow-400');
+            btn.classList.remove('border-gray-700', 'text-gray-300');
+        } else {
+            btn.classList.remove('border-yellow-600', 'text-yellow-400');
+            btn.classList.add('border-gray-700', 'text-gray-300');
+        }
+    }
+
+    function renderWlList() {
+        var el = document.getElementById('wl-list');
+        if (wlLists.length === 0) {
+            el.innerHTML = '<p class="px-4 py-2 text-gray-500">No watchlists yet.</p>';
+            return;
+        }
+        el.innerHTML = wlLists.map(function (lst) {
+            var checked = lst.has_symbol ? ' checked' : '';
+            return '<label class="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-800 cursor-pointer">' +
+                '<input type="checkbox"' + checked + ' class="accent-blue-500" onchange="toggleWlItem(' + lst.id + ', this.checked)">' +
+                '<span class="text-gray-200">' + escHtml(lst.name) + '</span>' +
+                '</label>';
+        }).join('');
+        updateStarBtn();
+    }
+
+    window.toggleWlDropdown = function () {
+        var drop = document.getElementById('wl-dropdown');
+        if (!drop.hidden) { drop.hidden = true; return; }
+        drop.hidden = false;
+        if (!wlLoaded) {
+            fetch('/api/lists?type=watchlist&symbol=' + encodeURIComponent(symbol))
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    wlLists = d.lists;
+                    wlLoaded = true;
+                    renderWlList();
+                });
+        }
+    };
+
+    window.toggleWlItem = function (listId, add) {
+        var lst = wlLists.find(function (l) { return l.id === listId; });
+        if (!lst) return;
+        if (add) {
+            fetch('/api/lists/' + listId + '/items', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({symbol: symbol})
+            }).then(function (r) {
+                if (r.ok) { lst.has_symbol = true; updateStarBtn(); }
+            });
+        } else {
+            // Find the item id then delete it
+            fetch('/api/lists/' + listId + '/items')
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var item = d.items.find(function (i) { return i.symbol === symbol; });
+                    if (!item) return;
+                    return fetch('/api/lists/' + listId + '/items/' + item.id, {method: 'DELETE'});
+                }).then(function () { lst.has_symbol = false; updateStarBtn(); });
+        }
+    };
+
+    window.createAndAddWatchlist = function () {
+        var name = prompt('New watchlist name:');
+        if (!name) return;
+        fetch('/api/lists', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({type: 'watchlist', name: name.trim()})
+        }).then(function (r) { return r.json(); })
+          .then(function (lst) {
+            lst.has_symbol = false;
+            wlLists.push(lst);
+            renderWlList();
+            // Immediately add the symbol
+            return fetch('/api/lists/' + lst.id + '/items', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({symbol: symbol})
+            });
+          }).then(function () {
+            var lst = wlLists[wlLists.length - 1];
+            if (lst) { lst.has_symbol = true; renderWlList(); }
+          });
+    };
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener('click', function (e) {
+        var wrap = document.getElementById('wl-wrap');
+        if (wrap && !wrap.contains(e.target)) {
+            document.getElementById('wl-dropdown').hidden = true;
+        }
+    });
+
+    // Pre-load membership so star is correct on page load
+    fetch('/api/lists?type=watchlist&symbol=' + encodeURIComponent(symbol))
+        .then(function (r) { return r.json(); })
+        .then(function (d) { wlLists = d.lists; wlLoaded = true; updateStarBtn(); });
 }());
 </script>
 {% endblock %}

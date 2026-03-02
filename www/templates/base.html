@@ -25,6 +25,8 @@
             <div class="flex items-center justify-between h-14">
                 <a href="/" class="text-white font-semibold text-lg tracking-tight">ASX Data</a>
                 <div class="flex items-center gap-6">
+                    <a href="/watchlists" class="{% if nav_active == 'watchlists' %}text-white{% else %}text-gray-300 hover:text-white{% endif %} text-sm">Watchlists</a>
+                    <a href="/portfolios" class="{% if nav_active == 'portfolios' %}text-white{% else %}text-gray-300 hover:text-white{% endif %} text-sm">Portfolios</a>
                     <!-- Shorts link -->
                     <a href="/shorts" class="text-gray-300 hover:text-white text-sm">Shorts</a>
                     <a href="/announcements" class="text-gray-300 hover:text-white text-sm">Announcements</a>
@@ -50,7 +52,7 @@
     </nav>
 
     <!-- Page content -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main class="{% block main_class %}flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8{% endblock %}">
         {% block content %}{% endblock %}
     </main>
 

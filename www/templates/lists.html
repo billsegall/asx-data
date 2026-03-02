@@ -1,0 +1,897 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} &mdash; ASX Data{% endblock %}
+
+{% block main_class %}flex-1 w-full p-0 overflow-hidden{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<style>
+/* Full-width two-pane layout filling remaining viewport height */
+#lists-layout { display:flex; height:calc(100vh - 3.5rem); width:100%; }
+#sidebar { width:11.2rem; flex-shrink:0; background:#111827; border-right:1px solid #1f2937;
+           display:flex; flex-direction:column; overflow-y:auto; padding:1rem 0; }
+#main-panel { flex:1; overflow-y:auto; overflow-x:hidden; padding:1.5rem; min-width:0; }
+
+/* Sidebar */
+.sidebar-group-label { padding:.25rem .75rem; font-size:.7rem; font-weight:600;
+                        color:#6b7280; text-transform:uppercase; letter-spacing:.05em; margin-top:.5rem; }
+.sidebar-item { display:flex; align-items:center; gap:.4rem; padding:.4rem .75rem;
+                cursor:pointer; font-size:.82rem; color:#9ca3af; border-radius:4px; margin:1px .25rem; }
+.sidebar-item:hover { background:#1f2937; color:#f3f4f6; }
+.sidebar-item.active { background:#1d4ed8; color:#fff; }
+.sidebar-item .item-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sidebar-item .sidebar-actions { display:none; align-items:center; gap:1px; flex-shrink:0; }
+.sidebar-item:hover .sidebar-actions { display:flex; }
+.sidebar-item .delete-btn { color:#6b7280; font-size:.9rem; line-height:1; padding:0 2px; }
+.sidebar-item .delete-btn:hover { color:#ef4444; }
+.sidebar-item .menu-btn  { color:#6b7280; font-size:.9rem; line-height:1; padding:0 2px; }
+.sidebar-item .menu-btn:hover  { color:#d1d5db; }
+/* Sidebar list context menu */
+.sidebar-menu { position:fixed; z-index:300; background:#1f2937; border:1px solid #374151;
+                border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.5); min-width:9rem; overflow:hidden; }
+.sidebar-menu-item { padding:.4rem .75rem; cursor:pointer; font-size:.8rem; color:#d1d5db; white-space:nowrap; }
+.sidebar-menu-item:hover { background:#374151; color:#fff; }
+.sidebar-menu-sep { border-top:1px solid #374151; margin:.25rem 0; }
+
+/* Column manager slide-out */
+#col-panel { position:fixed; top:3.5rem; right:0; width:18rem; height:calc(100vh - 3.5rem);
+             background:#111827; border-left:1px solid #1f2937; z-index:50;
+             display:flex; flex-direction:column; transform:translateX(100%);
+             transition:transform .2s ease; }
+#col-panel.open { transform:translateX(0); }
+#col-backdrop { position:fixed; inset:0; z-index:49; display:none; }
+#col-backdrop.open { display:block; }
+.col-row { display:flex; align-items:center; gap:.5rem; padding:.4rem .75rem; cursor:grab;
+           border-radius:4px; }
+.col-row:hover { background:#1f2937; }
+.col-drag { color:#4b5563; font-size:1rem; cursor:grab; }
+.col-label { flex:1; font-size:.82rem; color:#d1d5db; }
+
+/* Data table */
+.table-wrap { width:100%; overflow-x:auto; }
+#data-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+#data-table th { background:#111827; color:#6b7280; font-weight:500; padding:.5rem .75rem;
+                 text-align:left; white-space:nowrap; cursor:pointer; user-select:none; border-bottom:1px solid #1f2937; }
+#data-table th:hover { color:#f3f4f6; }
+#data-table td { padding:.45rem .75rem; border-top:1px solid #1f2937; white-space:nowrap; }
+#data-table tbody tr:hover { background:rgba(31,41,55,.4); }
+
+/* Dropdown menu */
+.row-menu { position:fixed; z-index:200; background:#1f2937; border:1px solid #374151;
+            border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,.5); min-width:10rem; overflow:hidden; }
+.row-menu-item { padding:.45rem .85rem; cursor:pointer; font-size:.82rem; color:#d1d5db; }
+.row-menu-item:hover { background:#374151; color:#fff; }
+
+/* Modal */
+#modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:100; display:none; align-items:center; justify-content:center; }
+#modal-backdrop.open { display:flex; }
+#modal-box { background:#1f2937; border:1px solid #374151; border-radius:8px; padding:1.5rem;
+             width:24rem; max-width:95vw; }
+
+/* Inline rename */
+.list-name-input { background:transparent; border:none; border-bottom:1px solid #3b82f6;
+                   color:#f3f4f6; font-size:1rem; font-weight:600; outline:none; padding:0 2px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="lists-layout">
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <div id="sidebar-content"></div>
+        <div class="px-3 mt-2 flex flex-col gap-1">
+            <button onclick="createList()" class="text-left text-xs text-blue-400 hover:text-blue-300 px-2 py-1">+ New list</button>
+            <button onclick="createGroup()" class="text-left text-xs text-gray-500 hover:text-gray-400 px-2 py-1">+ New group</button>
+        </div>
+    </div>
+
+    <!-- Main panel -->
+    <div id="main-panel">
+        <div id="main-content">
+            <p class="text-gray-500 text-sm">Select a list from the sidebar.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Column manager panel -->
+<div id="col-backdrop" onclick="closeColPanel()"></div>
+<div id="col-panel">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <span class="text-sm font-semibold text-gray-200">Columns</span>
+        <button onclick="closeColPanel()" class="text-gray-500 hover:text-gray-300 text-lg leading-none">&times;</button>
+    </div>
+    <div id="col-list" class="flex-1 overflow-y-auto py-2"></div>
+    <div class="px-4 py-3 border-t border-gray-800">
+        <button onclick="resetColumns()" class="text-xs text-gray-500 hover:text-gray-300">Reset to defaults</button>
+    </div>
+</div>
+
+<!-- Portfolio add/edit modal -->
+<div id="modal-backdrop">
+    <div id="modal-box">
+        <h2 id="modal-title" class="text-base font-semibold text-gray-100 mb-4">Add to Portfolio</h2>
+        <form id="modal-form" onsubmit="modalSubmit(event)">
+            <input type="hidden" id="modal-item-id">
+            <div class="flex flex-col gap-3">
+                <div id="modal-symbol-wrap" class="relative">
+                    <label class="text-xs text-gray-400 mb-1 block">Symbol</label>
+                    <input id="modal-symbol" type="text" required maxlength="5" autocomplete="off"
+                           style="text-transform:uppercase"
+                           class="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500"
+                           data-symbol-search>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Units</label>
+                    <input id="modal-qty" type="number" min="0.0001" step="any" required
+                           class="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Buy Price</label>
+                    <input id="modal-price" type="number" min="0.0001" step="any" required
+                           class="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Buy Date (optional)</label>
+                    <input id="modal-date" type="date"
+                           class="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Notes (optional)</label>
+                    <input id="modal-notes" type="text" maxlength="200"
+                           class="w-full bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                </div>
+            </div>
+            <div class="flex gap-3 mt-5 justify-end">
+                <button type="button" onclick="closeModal()"
+                        class="text-sm text-gray-400 hover:text-gray-200 px-4 py-1.5 rounded border border-gray-700">Cancel</button>
+                <button type="submit" id="modal-submit-btn"
+                        class="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded">Add</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const LIST_TYPE = {{ list_type | tojson }};
+
+let state = {
+    lists: [],
+    groups: [],
+    activeListId: null,
+    items: [],
+    columnPrefs: [],
+    sortCol: null,
+    sortDir: 1,
+};
+
+// ── Autocomplete integration for modal symbol field ──────────────────────────
+// We re-use initAutocomplete from base.html, but with a custom onSelect handler
+// instead of navigating to /stock/.
+function initModalAutocomplete() {
+    const input = document.getElementById('modal-symbol');
+    const wrap = document.getElementById('modal-symbol-wrap');
+    const drop = document.createElement('div');
+    drop.className = 'sym-dropdown';
+    drop.hidden = true;
+    wrap.appendChild(drop);
+
+    let timer, activeIdx = -1, items = [];
+
+    function show(results) {
+        items = results;
+        activeIdx = -1;
+        drop.innerHTML = '';
+        results.forEach(r => {
+            const el = document.createElement('div');
+            el.className = 'sym-item';
+            el.innerHTML = `<span class="sym-ticker">${r.symbol}</span><span class="sym-name">${r.name||''}</span>`;
+            el.addEventListener('mousedown', e => { e.preventDefault(); select(r.symbol); });
+            drop.appendChild(el);
+        });
+        drop.hidden = results.length === 0;
+    }
+
+    function select(symbol) {
+        input.value = symbol;
+        drop.hidden = true;
+    }
+
+    function setActive(idx) {
+        const els = drop.querySelectorAll('.sym-item');
+        els.forEach(el => el.classList.remove('active'));
+        activeIdx = Math.max(-1, Math.min(idx, els.length - 1));
+        if (activeIdx >= 0) { els[activeIdx].classList.add('active'); input.value = items[activeIdx].symbol; }
+    }
+
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (!q) { drop.hidden = true; return; }
+        timer = setTimeout(async () => {
+            const r = await fetch('/api/symbols?q=' + encodeURIComponent(q));
+            show(await r.json());
+        }, 150);
+    });
+    input.addEventListener('keydown', e => {
+        if (drop.hidden) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIdx + 1); }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); setActive(activeIdx - 1); }
+        if (e.key === 'Escape')    { drop.hidden = true; }
+        if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); select(items[activeIdx].symbol); }
+    });
+    input.addEventListener('blur', () => setTimeout(() => { drop.hidden = true; }, 150));
+}
+
+// ── Navigation / sidebar ─────────────────────────────────────────────────────
+
+async function loadNav() {
+    const r = await fetch('/api/lists?type=' + LIST_TYPE);
+    const d = await r.json();
+    state.lists = d.lists;
+    state.groups = d.groups;
+    state.columnPrefs = d.column_prefs;
+    renderSidebar();
+    if (!state.activeListId && state.lists.length > 0) {
+        loadList(state.lists[0].id);
+    }
+}
+
+function renderSidebar() {
+    const cont = document.getElementById('sidebar-content');
+
+    // Build group → lists map
+    const grouped = {};
+    const ungrouped = [];
+    state.lists.forEach(lst => {
+        if (lst.group_id) {
+            if (!grouped[lst.group_id]) grouped[lst.group_id] = [];
+            grouped[lst.group_id].push(lst);
+        } else {
+            ungrouped.push(lst);
+        }
+    });
+
+    let html = '';
+
+    // Groups
+    state.groups.forEach(g => {
+        html += `<div class="sidebar-group-label" data-group-id="${g.id}">${escHtml(g.name)}</div>`;
+        (grouped[g.id] || []).forEach(lst => {
+            html += sidebarItem(lst);
+        });
+    });
+
+    // Ungrouped lists
+    if (ungrouped.length > 0) {
+        if (state.groups.length > 0) {
+            html += `<div class="sidebar-group-label">Ungrouped</div>`;
+        }
+        ungrouped.forEach(lst => { html += sidebarItem(lst); });
+    }
+
+    cont.innerHTML = html;
+
+    // Attach click handlers
+    cont.querySelectorAll('.sidebar-item').forEach(el => {
+        el.addEventListener('click', () => loadList(+el.dataset.id));
+        el.addEventListener('dblclick', () => beginRenameList(+el.dataset.id));
+    });
+    cont.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); deleteList(+btn.dataset.deleteId); });
+    });
+    cont.querySelectorAll('.menu-btn').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); showListMenu(e, +btn.dataset.menuId); });
+    });
+}
+
+function sidebarItem(lst) {
+    const active = lst.id === state.activeListId ? ' active' : '';
+    return `<div class="sidebar-item${active}" data-id="${lst.id}">
+        <span class="item-label">${escHtml(lst.name)}</span>
+        <span class="sidebar-actions">
+            <button class="menu-btn" data-menu-id="${lst.id}" title="Options">&#xFE19;</button>
+            <button class="delete-btn" data-delete-id="${lst.id}" title="Delete">&times;</button>
+        </span>
+    </div>`;
+}
+
+async function loadList(id) {
+    state.activeListId = id;
+    renderSidebar();
+    document.getElementById('main-content').innerHTML = '<p class="text-gray-500 text-sm">Loading&hellip;</p>';
+    state.sortCol = null;
+    state.sortDir = 1;
+    const r = await fetch('/api/lists/' + id + '/items');
+    const d = await r.json();
+    state.items = d.items;
+    state.columnPrefs = d.column_prefs;
+    renderMain(d.list);
+}
+
+// ── Main panel ───────────────────────────────────────────────────────────────
+
+function renderMain(lst) {
+    const isPortfolio = LIST_TYPE === 'portfolio';
+    const visibleCols = state.columnPrefs.filter(c => c.visible);
+
+    let html = `<div class="flex items-center justify-between mb-4 gap-3">
+        <div class="flex items-center gap-2 min-w-0">
+            <h1 class="text-lg font-semibold text-gray-100 list-name-display cursor-pointer" title="Double-click to rename" ondblclick="beginRenameList(${lst.id})">${escHtml(lst.name)}</h1>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">`;
+
+    if (isPortfolio) {
+        html += `<button onclick="openAddModal()" class="text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded">+ Add</button>`;
+    } else {
+        html += `<div class="relative flex gap-2">
+            <div class="relative" id="add-sym-wrap">
+                <input id="add-sym" type="text" placeholder="Symbol&hellip;" maxlength="5" autocomplete="off"
+                       style="text-transform:uppercase"
+                       class="bg-gray-800 border border-gray-700 text-gray-100 text-sm rounded px-3 py-1.5 w-28 focus:outline-none focus:border-blue-500"
+                       data-symbol-search>
+            </div>
+            <button onclick="addWatchlistItem()" class="text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded">Add</button>
+        </div>`;
+    }
+
+    html += `<button onclick="openColPanel()" class="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded border border-gray-700">Columns ⚙</button>
+        </div>
+    </div>`;
+
+    // Summary row for portfolio
+    if (isPortfolio && state.items.length > 0) {
+        const totalValue = state.items.reduce((s, i) => s + (i.current_value || 0), 0);
+        const totalCost = state.items.reduce((s, i) => s + (i.cost_basis || 0), 0);
+        const totalPnl = totalValue - totalCost;
+        const pnlPct = totalCost ? (totalPnl / totalCost * 100) : 0;
+        const pnlCls = totalPnl >= 0 ? 'text-green-400' : 'text-red-400';
+        html += `<div class="flex gap-6 mb-4 text-sm">
+            <span class="text-gray-400">Total value: <span class="text-gray-100 font-medium">$${fmtNum(totalValue)}</span></span>
+            <span class="text-gray-400">Total cost: <span class="text-gray-100 font-medium">$${fmtNum(totalCost)}</span></span>
+            <span class="text-gray-400">P&L: <span class="${pnlCls} font-medium">${totalPnl >= 0 ? '+' : ''}$${fmtNum(totalPnl)} (${pnlPct.toFixed(1)}%)</span></span>
+        </div>`;
+    }
+
+    // Table
+    html += `<div class="table-wrap rounded-lg border border-gray-800">
+        <table id="data-table">
+            <thead><tr>`;
+
+    visibleCols.forEach(col => {
+        const sortIndicator = state.sortCol === col.key ? (state.sortDir > 0 ? ' ↑' : ' ↓') : ' ⇅';
+        html += `<th onclick="sortBy('${col.key}')">${escHtml(col.label)}${sortIndicator}</th>`;
+    });
+    html += `<th style="width:2rem"></th></tr></thead>
+        <tbody id="data-tbody">`;
+
+    if (state.items.length === 0) {
+        html += `<tr><td colspan="${visibleCols.length + 1}" class="px-4 py-6 text-center text-gray-500">No items. Add a symbol to get started.</td></tr>`;
+    } else {
+        state.items.forEach(item => { html += renderRow(item, visibleCols, lst.id); });
+    }
+
+    html += '</tbody></table></div>';
+    document.getElementById('main-content').innerHTML = html;
+
+    // Init add-symbol autocomplete for watchlists
+    if (!isPortfolio) {
+        initAddSymAutocomplete();
+    }
+}
+
+function renderRow(item, visibleCols, listId) {
+    let cells = visibleCols.map(col => {
+        const v = item[col.key];
+        return `<td>${fmtCell(col.key, v, item)}</td>`;
+    }).join('');
+    return `<tr data-item-id="${item.id}">
+        ${cells}
+        <td><button class="text-gray-600 hover:text-gray-300 text-sm px-1" onclick="showRowMenu(event,${item.id},${listId})">&#xFE19;</button></td>
+    </tr>`;
+}
+
+function fmtCell(key, v, item) {
+    if (v === null || v === undefined) return '<span class="text-gray-600">—</span>';
+    if (key === 'symbol') return `<a href="/stock/${v}" class="text-blue-400 hover:text-blue-300 font-mono font-medium">${v}</a>`;
+    if (key === 'name' || key === 'industry' || key === 'notes') return `<span class="text-gray-300">${escHtml(String(v))}</span>`;
+    if (key === 'purchase_date') return `<span class="text-gray-400">${v}</span>`;
+    if (key === 'mcap') return `<span class="text-gray-300">${v}</span>`;
+    if (key === 'volume') return `<span class="text-gray-400 font-mono">${Number(v).toLocaleString()}</span>`;
+    if (key === 'days_held') return `<span class="text-gray-400">${v}d</span>`;
+    if (key.endsWith('_pct') || key === 'short_pct') {
+        const cls = v > 0 ? 'text-green-400' : v < 0 ? 'text-red-400' : 'text-gray-400';
+        const sign = v > 0 ? '+' : '';
+        return `<span class="${cls} font-mono">${sign}${v.toFixed(2)}%</span>`;
+    }
+    if (key === 'pnl') {
+        const cls = v >= 0 ? 'text-green-400' : 'text-red-400';
+        return `<span class="${cls} font-mono">${v >= 0 ? '+' : ''}$${fmtNum(v)}</span>`;
+    }
+    if (key === 'price' || key === 'change_1d' || key === 'high_52w' || key === 'low_52w' ||
+        key === 'purchase_price' || key === 'current_value' || key === 'cost_basis') {
+        return `<span class="text-gray-200 font-mono">$${Number(v).toFixed(2)}</span>`;
+    }
+    if (key === 'quantity') return `<span class="text-gray-200 font-mono">${Number(v).toLocaleString()}</span>`;
+    return `<span class="text-gray-300">${v}</span>`;
+}
+
+// ── Sorting ──────────────────────────────────────────────────────────────────
+
+function sortBy(col) {
+    if (state.sortCol === col) {
+        state.sortDir = -state.sortDir;
+    } else {
+        state.sortCol = col;
+        state.sortDir = 1;
+    }
+    state.items.sort((a, b) => {
+        const va = a[col], vb = b[col];
+        if (va === null || va === undefined) return 1;
+        if (vb === null || vb === undefined) return -1;
+        const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
+        return cmp * state.sortDir;
+    });
+    const lst = state.lists.find(l => l.id === state.activeListId);
+    renderMain(lst || {id: state.activeListId, name: ''});
+}
+
+// ── Add symbol (watchlist) ───────────────────────────────────────────────────
+
+function initAddSymAutocomplete() {
+    const input = document.getElementById('add-sym');
+    if (!input) return;
+    const wrap = document.getElementById('add-sym-wrap');
+    const drop = document.createElement('div');
+    drop.className = 'sym-dropdown';
+    drop.hidden = true;
+    wrap.appendChild(drop);
+
+    let timer, activeIdx = -1, items = [];
+
+    function show(results) {
+        items = results; activeIdx = -1; drop.innerHTML = '';
+        results.forEach(r => {
+            const el = document.createElement('div');
+            el.className = 'sym-item';
+            el.innerHTML = `<span class="sym-ticker">${r.symbol}</span><span class="sym-name">${r.name||''}</span>`;
+            el.addEventListener('mousedown', e => { e.preventDefault(); select(r.symbol); });
+            drop.appendChild(el);
+        });
+        drop.hidden = results.length === 0;
+    }
+
+    function select(sym) { input.value = sym; drop.hidden = true; }
+
+    function setActive(idx) {
+        const els = drop.querySelectorAll('.sym-item');
+        els.forEach(el => el.classList.remove('active'));
+        activeIdx = Math.max(-1, Math.min(idx, els.length-1));
+        if (activeIdx >= 0) { els[activeIdx].classList.add('active'); input.value = items[activeIdx].symbol; }
+    }
+
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (!q) { drop.hidden = true; return; }
+        timer = setTimeout(async () => { show(await (await fetch('/api/symbols?q='+encodeURIComponent(q))).json()); }, 150);
+    });
+    input.addEventListener('keydown', e => {
+        if (drop.hidden) return;
+        if (e.key==='ArrowDown') { e.preventDefault(); setActive(activeIdx+1); }
+        if (e.key==='ArrowUp')   { e.preventDefault(); setActive(activeIdx-1); }
+        if (e.key==='Escape')    { drop.hidden=true; }
+        if (e.key==='Enter' && activeIdx >= 0) { e.preventDefault(); select(items[activeIdx].symbol); }
+    });
+    input.addEventListener('blur', () => setTimeout(()=>{drop.hidden=true;},150));
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && activeIdx < 0) { e.preventDefault(); addWatchlistItem(); } });
+}
+
+async function addWatchlistItem() {
+    const input = document.getElementById('add-sym');
+    if (!input) return;
+    const sym = input.value.trim().toUpperCase();
+    if (!sym) return;
+    const r = await fetch('/api/lists/' + state.activeListId + '/items', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({symbol: sym})
+    });
+    if (!r.ok) {
+        if (r.status === 409) alert(sym + ' is already in this list.');
+        else alert('Error adding ' + sym);
+        return;
+    }
+    input.value = '';
+    await reloadItems();
+}
+
+// ── Portfolio modal ──────────────────────────────────────────────────────────
+
+function openAddModal() {
+    document.getElementById('modal-title').textContent = 'Add to Portfolio';
+    document.getElementById('modal-submit-btn').textContent = 'Add';
+    document.getElementById('modal-item-id').value = '';
+    document.getElementById('modal-symbol').value = '';
+    document.getElementById('modal-symbol').disabled = false;
+    document.getElementById('modal-symbol-wrap').style.display = '';
+    document.getElementById('modal-qty').value = '';
+    document.getElementById('modal-price').value = '';
+    document.getElementById('modal-date').value = '';
+    document.getElementById('modal-notes').value = '';
+    document.getElementById('modal-backdrop').classList.add('open');
+}
+
+function openEditModal(item) {
+    document.getElementById('modal-title').textContent = 'Edit ' + item.symbol;
+    document.getElementById('modal-submit-btn').textContent = 'Save';
+    document.getElementById('modal-item-id').value = item.id;
+    document.getElementById('modal-symbol').value = item.symbol;
+    document.getElementById('modal-symbol-wrap').style.display = 'none';
+    document.getElementById('modal-qty').value = item.quantity;
+    document.getElementById('modal-price').value = item.purchase_price;
+    document.getElementById('modal-date').value = item.purchase_date || '';
+    document.getElementById('modal-notes').value = item.notes || '';
+    document.getElementById('modal-backdrop').classList.add('open');
+}
+
+function closeModal() {
+    document.getElementById('modal-backdrop').classList.remove('open');
+}
+
+async function modalSubmit(e) {
+    e.preventDefault();
+    const itemId = document.getElementById('modal-item-id').value;
+    const qty = parseFloat(document.getElementById('modal-qty').value);
+    const price = parseFloat(document.getElementById('modal-price').value);
+    const date = document.getElementById('modal-date').value || null;
+    const notes = document.getElementById('modal-notes').value || null;
+
+    if (itemId) {
+        // Edit
+        await fetch('/api/lists/' + state.activeListId + '/items/' + itemId, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({quantity: qty, purchase_price: price, purchase_date: date, notes: notes})
+        });
+    } else {
+        // Add
+        const sym = document.getElementById('modal-symbol').value.trim().toUpperCase();
+        const r = await fetch('/api/lists/' + state.activeListId + '/items', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({symbol: sym, quantity: qty, purchase_price: price, purchase_date: date, notes: notes})
+        });
+        if (!r.ok) { alert('Error adding item'); return; }
+    }
+    closeModal();
+    await reloadItems();
+}
+
+// ── Row actions menu ─────────────────────────────────────────────────────────
+
+let activeMenu = null;
+
+function showRowMenu(event, itemId, listId) {
+    event.stopPropagation();
+    removeActiveMenu();
+
+    const item = state.items.find(i => i.id === itemId);
+    const otherLists = state.lists.filter(l => l.id !== listId);
+
+    const menu = document.createElement('div');
+    menu.className = 'row-menu';
+
+    // Move to submenu
+    if (otherLists.length > 0) {
+        const moveDiv = document.createElement('div');
+        moveDiv.className = 'row-menu-item';
+        moveDiv.textContent = 'Move to…';
+        moveDiv.onclick = () => showMoveSubmenu(event, itemId, listId, otherLists, menu);
+        menu.appendChild(moveDiv);
+    }
+
+    // Edit (portfolio)
+    if (LIST_TYPE === 'portfolio' && item) {
+        const editDiv = document.createElement('div');
+        editDiv.className = 'row-menu-item';
+        editDiv.textContent = 'Edit';
+        editDiv.onclick = () => { removeActiveMenu(); openEditModal(item); };
+        menu.appendChild(editDiv);
+    }
+
+    // Remove
+    const removeDiv = document.createElement('div');
+    removeDiv.className = 'row-menu-item text-red-400';
+    removeDiv.textContent = 'Remove';
+    removeDiv.onclick = async () => {
+        removeActiveMenu();
+        await fetch('/api/lists/' + listId + '/items/' + itemId, {method: 'DELETE'});
+        state.items = state.items.filter(i => i.id !== itemId);
+        const lst = state.lists.find(l => l.id === state.activeListId);
+        renderMain(lst || {id: state.activeListId, name: ''});
+    };
+    menu.appendChild(removeDiv);
+
+    const btn = event.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    menu.style.top = (rect.bottom + window.scrollY) + 'px';
+    menu.style.right = (window.innerWidth - rect.right) + 'px';
+    document.body.appendChild(menu);
+    activeMenu = menu;
+}
+
+function showMoveSubmenu(origEvent, itemId, listId, otherLists, parentMenu) {
+    removeActiveMenu();
+    const menu = document.createElement('div');
+    menu.className = 'row-menu';
+    otherLists.forEach(lst => {
+        const el = document.createElement('div');
+        el.className = 'row-menu-item';
+        el.textContent = lst.name;
+        el.onclick = async () => {
+            removeActiveMenu();
+            await fetch('/api/lists/' + listId + '/items/' + itemId + '/move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({target_list_id: lst.id})
+            });
+            await reloadItems();
+        };
+        menu.appendChild(el);
+    });
+    const btn = origEvent.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    menu.style.top = (rect.bottom + window.scrollY) + 'px';
+    menu.style.right = (window.innerWidth - rect.right) + 'px';
+    document.body.appendChild(menu);
+    activeMenu = menu;
+}
+
+function removeActiveMenu() {
+    if (activeMenu) { activeMenu.remove(); activeMenu = null; }
+}
+document.addEventListener('click', removeActiveMenu);
+
+// ── Create list / group ──────────────────────────────────────────────────────
+
+async function createList() {
+    const name = prompt('List name:');
+    if (!name) return;
+    const r = await fetch('/api/lists', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type: LIST_TYPE, name: name.trim()})
+    });
+    if (!r.ok) return;
+    const lst = await r.json();
+    state.lists.push(lst);
+    renderSidebar();
+    loadList(lst.id);
+}
+
+let activeSidebarMenu = null;
+
+function showListMenu(e, listId) {
+    if (activeSidebarMenu) { activeSidebarMenu.remove(); activeSidebarMenu = null; }
+    const lst = state.lists.find(l => l.id === listId);
+    if (!lst) return;
+
+    const menu = document.createElement('div');
+    menu.className = 'sidebar-menu';
+
+    // Rename
+    const renameEl = document.createElement('div');
+    renameEl.className = 'sidebar-menu-item';
+    renameEl.textContent = 'Rename…';
+    renameEl.onclick = () => { menu.remove(); activeSidebarMenu = null; beginRenameList(listId); };
+    menu.appendChild(renameEl);
+
+    // Move to group
+    const sep = document.createElement('div');
+    sep.className = 'sidebar-menu-sep';
+    menu.appendChild(sep);
+
+    const groupOptions = [
+        {id: null, name: 'No group'},
+        ...state.groups
+    ].filter(g => g.id !== lst.group_id);  // hide current group
+
+    if (groupOptions.length > 0) {
+        groupOptions.forEach(g => {
+            const el = document.createElement('div');
+            el.className = 'sidebar-menu-item';
+            el.textContent = g.id ? `→ ${g.name}` : '→ No group';
+            el.onclick = async () => {
+                menu.remove(); activeSidebarMenu = null;
+                await fetch('/api/lists/' + listId, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({group_id: g.id})
+                });
+                lst.group_id = g.id;
+                renderSidebar();
+            };
+            menu.appendChild(el);
+        });
+    } else {
+        const el = document.createElement('div');
+        el.className = 'sidebar-menu-item';
+        el.style.color = '#6b7280';
+        el.textContent = 'No other groups';
+        menu.appendChild(el);
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top  = rect.bottom + 'px';
+    menu.style.left = rect.left + 'px';
+    document.body.appendChild(menu);
+    activeSidebarMenu = menu;
+}
+
+document.addEventListener('click', () => {
+    if (activeSidebarMenu) { activeSidebarMenu.remove(); activeSidebarMenu = null; }
+});
+
+async function deleteList(listId) {
+    const lst = state.lists.find(l => l.id === listId);
+    if (!lst) return;
+    if (!confirm(`Delete "${lst.name}"? This will remove all items in it.`)) return;
+    const r = await fetch('/api/lists/' + listId, {method: 'DELETE'});
+    if (!r.ok) return;
+    state.lists = state.lists.filter(l => l.id !== listId);
+    if (state.activeListId === listId) {
+        state.activeListId = null;
+        document.getElementById('main-content').innerHTML = '<p class="text-gray-500 text-sm">Select a list from the sidebar.</p>';
+    }
+    renderSidebar();
+    if (state.lists.length > 0 && !state.activeListId) {
+        loadList(state.lists[0].id);
+    }
+}
+
+async function createGroup() {
+    const name = prompt('Group name:');
+    if (!name) return;
+    const r = await fetch('/api/list-groups', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type: LIST_TYPE, name: name.trim()})
+    });
+    if (!r.ok) return;
+    const g = await r.json();
+    state.groups.push(g);
+    renderSidebar();
+}
+
+// ── Rename list (inline) ─────────────────────────────────────────────────────
+
+function beginRenameList(listId) {
+    const lst = state.lists.find(l => l.id === listId);
+    if (!lst) return;
+    const name = prompt('Rename list:', lst.name);
+    if (!name || name.trim() === lst.name) return;
+    fetch('/api/lists/' + listId, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name.trim()})
+    }).then(async r => {
+        if (r.ok) {
+            lst.name = name.trim();
+            renderSidebar();
+            // Update the header if this is the active list
+            const h = document.querySelector('.list-name-display');
+            if (h && state.activeListId === listId) h.textContent = lst.name;
+        }
+    });
+}
+
+// ── Column manager ───────────────────────────────────────────────────────────
+
+function openColPanel() {
+    renderColPanel();
+    document.getElementById('col-panel').classList.add('open');
+    document.getElementById('col-backdrop').classList.add('open');
+}
+
+function closeColPanel() {
+    document.getElementById('col-panel').classList.remove('open');
+    document.getElementById('col-backdrop').classList.remove('open');
+}
+
+function renderColPanel() {
+    const list = document.getElementById('col-list');
+    list.innerHTML = '';
+    state.columnPrefs.forEach((col, i) => {
+        const row = document.createElement('div');
+        row.className = 'col-row';
+        row.dataset.key = col.key;
+        row.innerHTML = `
+            <span class="col-drag">⠿</span>
+            <span class="col-label">${escHtml(col.label)}</span>
+            <input type="checkbox" class="accent-blue-500" ${col.visible ? 'checked' : ''}
+                   onchange="toggleColumn('${col.key}', this.checked)">
+        `;
+        list.appendChild(row);
+    });
+    Sortable.create(list, {
+        animation: 150,
+        handle: '.col-drag',
+        onEnd: () => saveColumnOrder()
+    });
+}
+
+function toggleColumn(key, visible) {
+    const col = state.columnPrefs.find(c => c.key === key);
+    if (col) col.visible = visible;
+    saveColumnPrefs();
+    const lst = state.lists.find(l => l.id === state.activeListId);
+    renderMain(lst || {id: state.activeListId, name: ''});
+}
+
+function saveColumnOrder() {
+    const rows = document.querySelectorAll('#col-list .col-row');
+    const newOrder = [];
+    rows.forEach(row => {
+        const existing = state.columnPrefs.find(c => c.key === row.dataset.key);
+        if (existing) newOrder.push(existing);
+    });
+    state.columnPrefs = newOrder;
+    saveColumnPrefs();
+    const lst = state.lists.find(l => l.id === state.activeListId);
+    renderMain(lst || {id: state.activeListId, name: ''});
+    // Re-render col panel to reflect new order
+    renderColPanel();
+}
+
+function saveColumnPrefs() {
+    fetch('/api/column-prefs', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            type: LIST_TYPE,
+            columns: state.columnPrefs.map(c => ({key: c.key, visible: c.visible}))
+        })
+    });
+}
+
+function resetColumns() {
+    // Remove server-side prefs so defaults are used
+    fetch('/api/column-prefs', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type: LIST_TYPE, columns: []})
+    }).then(() => loadNav().then(() => {
+        if (state.activeListId) loadList(state.activeListId);
+        closeColPanel();
+    }));
+}
+
+// ── Reload helpers ───────────────────────────────────────────────────────────
+
+async function reloadItems() {
+    const r = await fetch('/api/lists/' + state.activeListId + '/items');
+    const d = await r.json();
+    state.items = d.items;
+    const lst = state.lists.find(l => l.id === state.activeListId);
+    renderMain(lst || {id: state.activeListId, name: ''});
+}
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtNum(n) {
+    return Number(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    initModalAutocomplete();
+    loadNav();
+});
+</script>
+{% endblock %}
