@@ -48,6 +48,12 @@
 .col-drag { color:#4b5563; font-size:1rem; cursor:grab; }
 .col-label { flex:1; font-size:.82rem; color:#d1d5db; }
 
+/* Note tooltip */
+#note-tip { position:fixed; z-index:9999; background:#1f2937; color:#d1d5db; padding:6px 10px;
+            border-radius:4px; font-size:.75rem; max-width:24rem; word-break:break-word;
+            border:1px solid #374151; box-shadow:0 4px 12px rgba(0,0,0,.4);
+            pointer-events:none; display:none; line-height:1.5; white-space:pre-wrap; }
+
 /* Data table */
 .table-wrap { width:100%; overflow-x:auto; }
 #data-table { width:100%; border-collapse:collapse; font-size:.82rem; }
@@ -350,7 +356,7 @@ function renderMain(lst) {
     // Table
     html += `<div class="table-wrap rounded-lg border border-gray-800"><table id="data-table"><thead><tr>`;
     visibleCols.forEach(col => {
-        const ind = state.sortCol === col.key ? (state.sortDir > 0 ? ' ↑' : ' ↓') : ' ⇅';
+        const ind = state.sortCol === col.key ? (state.sortDir > 0 ? ' ↑' : ' ↓') : '';
         html += `<th onclick="sortBy('${col.key}')">${escHtml(col.label)}${ind}</th>`;
     });
     html += `<th style="width:2rem"></th></tr></thead><tbody id="data-tbody">`;
@@ -431,7 +437,11 @@ function renderRow(item, visibleCols, listId) {
 function fmtCell(key, v, item) {
     if (v === null || v === undefined) return '<span class="text-gray-600">—</span>';
     if (key === 'symbol') return `<a href="/stock/${v}" class="text-blue-400 hover:text-blue-300 font-mono font-medium">${v}</a>`;
-    if (key === 'name' || key === 'industry') return `<span class="text-gray-300">${escHtml(String(v))}</span>`;
+    if (key === 'name') {
+        if (item && item.notes) { const tip = escHtml(item.notes.slice(0, 500)); return `<span class="text-gray-300" data-note="${tip}" style="cursor:default">${escHtml(String(v))} <span style="color:#6b7280;font-size:.65rem;vertical-align:middle">&#x25CF;</span></span>`; }
+        return `<span class="text-gray-300">${escHtml(String(v))}</span>`;
+    }
+    if (key === 'industry') return `<span class="text-gray-300">${escHtml(String(v))}</span>`;
     if (key === 'notes') return v ? `<span class="text-gray-400 italic">${escHtml(String(v))}</span>` : '<span class="text-gray-700">—</span>';
     if (key === 'purchase_date') return `<span class="text-gray-400">${v}</span>`;
     if (key === 'mcap') return `<span class="text-gray-300">${v}</span>`;
@@ -632,11 +642,25 @@ function showRowMenu(event, itemId, listId) {
         menu.appendChild(el);
     }
     if (LIST_TYPE === 'portfolio' && item) {
-        const el = document.createElement('div');
-        el.className = 'row-menu-item';
-        el.textContent = 'Edit';
-        el.onclick = () => { removeActiveMenu(); openEditModal(item); };
-        menu.appendChild(el);
+        const noteEl = document.createElement('div');
+        noteEl.className = 'row-menu-item';
+        noteEl.textContent = item.notes ? 'Edit note' : 'Add note';
+        noteEl.onclick = async () => {
+            removeActiveMenu();
+            const note = prompt(item.notes ? 'Edit note:' : 'Add note:', item.notes || '');
+            if (note === null) return;
+            const r = await fetch('/api/lists/' + listId + '/items/' + itemId, {
+                method: 'PATCH', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({notes: note.trim() || null})
+            });
+            if (r.ok) { item.notes = note.trim() || null; const lst = state.lists.find(l=>l.id===state.activeListId); renderMain(lst||{id:state.activeListId,name:''}); }
+        };
+        menu.appendChild(noteEl);
+        const editEl = document.createElement('div');
+        editEl.className = 'row-menu-item';
+        editEl.textContent = 'Edit';
+        editEl.onclick = () => { removeActiveMenu(); openEditModal(item); };
+        menu.appendChild(editEl);
     }
 
     // Remove
@@ -900,6 +924,36 @@ function escHtml(s) {
 function fmtNum(n) {
     return Number(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
+
+// ── Note tooltip ──────────────────────────────────────────────────────────────
+
+(function() {
+    const tip = document.createElement('div');
+    tip.id = 'note-tip';
+    document.body.appendChild(tip);
+
+    document.addEventListener('mouseover', e => {
+        const el = e.target.closest('[data-note]');
+        if (!el) { tip.style.display = 'none'; return; }
+        tip.textContent = el.dataset.note;
+        tip.style.display = 'block';
+        positionTip(e);
+    });
+    document.addEventListener('mousemove', e => {
+        if (tip.style.display === 'none') return;
+        positionTip(e);
+    });
+    document.addEventListener('mouseout', e => {
+        const el = e.target.closest('[data-note]');
+        if (el && el.contains(e.relatedTarget)) return;
+        tip.style.display = 'none';
+    });
+    function positionTip(e) {
+        const x = e.clientX + 14, y = e.clientY + 20;
+        tip.style.left = Math.min(x, window.innerWidth  - tip.offsetWidth  - 8) + 'px';
+        tip.style.top  = Math.min(y, window.innerHeight - tip.offsetHeight - 8) + 'px';
+    }
+})();
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
