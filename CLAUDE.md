@@ -1,17 +1,29 @@
-# ASX Data
+# ASX Data (backend)
 
-Database utilities and web visualiser for ASX stock market data.
+Data ingestion pipeline and stock data REST API for ASX market data.
+The web frontend lives in a separate repo: `github.com/billsegall/asx-web`.
 
 ## Project Structure
-- `stockdb/` — data ingestion pipeline and SQLite3 database
-- `www/` — Flask web application
+- `stockdb/` — data pipeline (fetch scripts, Makefile, SQLite DB)
+- `backend/` — Flask stock data API (port 8082)
 
-## Running
+## Running the backend
 
 ### Locally
 ```bash
-cd www && ./asx
+cd backend
+FLASK_APP=api.py PYTHONPATH=../stockdb DATABASE=../stockdb/stockdb.db \
+  flask run --host=0.0.0.0 --port=8082
 ```
+
+### On harri (systemd)
+```bash
+sudo systemctl start asx-backend    # start
+sudo systemctl status asx-backend   # check
+sudo journalctl -u asx-backend -f   # logs
+```
+Service file: `/etc/systemd/system/asx-backend.service`
+Virtualenv: `backend/venv/`
 
 ### Docker
 ```bash
@@ -19,41 +31,40 @@ docker compose up
 ```
 
 ## Rules
-- App must run both inside Docker (via compose) and directly via `./asx`
+- Backend serves stock data only — no user auth, no users.db
 - DB is never copied into the Docker image — always mounted as a read-only volume
-- DATABASE path is configured via env var; defaults to `../stockdb/stockdb.db` for local use
-- Always restart the server before committing, so changes can be tested first
-- **Restart is required for all changes** (Python files AND templates) — Flask 3.x only auto-reloads templates when `debug=True`, and our server runs with `debug=False`
+- `DATABASE` path configured via env var; defaults to `../stockdb/stockdb.db`
+
+## Backend API (`backend/api.py`) — port 8082
+
+### Endpoints
+- `GET /api/stock/<symbol>?start=YYYYMMDD&end=YYYYMMDD` — OHLCV, XAO overlay, shorts
+- `GET /api/symbols?q=` — symbol search/autocomplete
+- `GET /api/shorts` — latest short positions (3-char tickers)
+- `POST /api/enrich` — batch enrichment `{"symbols": ["BHP", ...]}` → metrics dict
+- `GET /api/symbol/<symbol>` — name, industry, mcap for a single symbol
 
 ## Data Pipeline (`stockdb/`)
 
 ### Refreshing data
 ```bash
-make fetch_all       # fetch latest symbols (ASX official) + ASIC shorts CSVs
-make                 # rebuild stockdb.db from all source data
+make update      # incremental: fetch symbols + shorts only (fast, no EOD rebuild)
+make fetch_all   # alias for make update
+make             # full rebuild of stockdb.db from all source data (slow, needed after new EOD zips)
 ```
 
 ### Data sources
-- **Symbols**: `fetch_symbols.py` downloads from `asx.com.au` → `symbols/asx-official.csv` (updated nightly by ASX)
-- **Shares outstanding**: derived at DB build time from the most recent `symbols/ASXListedCompanies-YYYYMMDD.csv` (ListCorp snapshot) using `shares = mcap / last_trade_price`
-- **Shorts**: `fetch_shorts.py` downloads ASIC daily YTD CSVs → `shorts/YYYY.csv`
-- **Prices**: purchased from eoddata.com; zip files placed in `stockdb/asx-eod-data/zips/`
+- **Symbols**: `fetch_symbols.py` → `symbols/asx-official.csv` (ASX official, nightly)
+- **Shares outstanding**: derived at build time from `symbols/ASXListedCompanies-YYYYMMDD.csv` using `shares = mcap / last_trade_price`
+- **Shorts**: `fetch_shorts.py` → `shorts/YYYY.csv` (ASIC public CSVs, 2010–present)
+- **Prices**: purchased from eoddata.com; zip files in `asx-eod-data/zips/` (private submodule)
 
 ### Database schema
+See `Database.md` for full schema. Summary:
 - `symbols(symbol PK, name, industry, shares)` — shares outstanding
 - `shorts(symbol, date, short%)` — daily short positions 2010–present
 - `endofday(symbol, date, open, high, low, close, volume)` — daily OHLCV
 - `endofmonth(symbol, date, close)` — last trading day of each month
 
 ### Market cap
-Computed live at query time: `shares × latest close price from endofday`. No stale snapshot date needed.
-
-## Web App (`www/`)
-
-### Routes
-- `/` — symbol search
-- `/stock/<symbol>` — interactive Plotly chart (candlestick/line, range selector, shorts overlay)
-- `/api/stock/<symbol>` — JSON: ohlcv, xao, shorts
-- `/shorts-now` — latest short positions table
-- `/shorts-historical` — peak short positions table
-- `/api/shorts-now`, `/api/shorts-historical` — JSON endpoints for the above
+Computed live: `shares × latest close from endofday`. No stale snapshot.
