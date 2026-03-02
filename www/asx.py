@@ -217,60 +217,81 @@ def _check_list_owner(list_id, user_id, conn):
     return row
 
 
+_enrich_cache = {}   # symbol -> (cached_at, metrics_dict)
+_ENRICH_TTL   = 300  # seconds
+
 def enrich_symbols(symbols):
-    """Return dict of symbol -> metrics from stockdb. Batched queries, no N+1."""
+    """Return dict of symbol -> metrics from stockdb. Batched queries with per-symbol cache."""
     if not symbols:
         return {}
-    placeholders = ','.join('?' * len(symbols))
-    result = {s: {} for s in symbols}
-    c = stocks.cursor()
 
-    # Query 1: latest 2 closes per symbol
+    now_ts = time.time()
+    result = {}
+    stale  = []
+    for s in symbols:
+        entry = _enrich_cache.get(s)
+        if entry and now_ts - entry[0] < _ENRICH_TTL:
+            result[s] = entry[1]
+        else:
+            result[s] = {}
+            stale.append(s)
+
+    if not stale:
+        return result
+
+    placeholders = ','.join('?' * len(stale))
+    c   = stocks.cursor()
+    now = datetime.datetime.now()
+
+    # Query 1+3 combined: last 30 days relative to the most-recent row for these
+    # symbols (index range scan, no window fn). Anchored to max(date) so stale
+    # data still works correctly.
+    c.execute(f'SELECT MAX(date) FROM endofday WHERE symbol IN ({placeholders})', stale)
+    max_eod_date = c.fetchone()[0] or 0
+    recent_cutoff = max_eod_date - 30 * 86400
     c.execute(f'''
-        SELECT symbol, date, close, volume FROM (
-            SELECT symbol, date, close, volume,
-                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
-            FROM endofday WHERE symbol IN ({placeholders})
-        ) WHERE rn <= 2
-    ''', symbols)
-    latest = {}
+        SELECT symbol, date, close, volume FROM endofday
+        WHERE symbol IN ({placeholders}) AND date >= ?
+        ORDER BY symbol, date DESC
+    ''', stale + [recent_cutoff])
+    recent_by_sym = {}
     for row in c.fetchall():
-        sym = row[0]
-        if sym not in latest:
-            latest[sym] = []
-        latest[sym].append((row[1], row[2], row[3]))
-    for sym, rows in latest.items():
-        if rows:
-            price = rows[0][1]
-            result[sym]['price'] = price
-            result[sym]['volume'] = rows[0][2]
-            if len(rows) >= 2:
-                prev = rows[1][1]
-                result[sym]['change_1d'] = round(price - prev, 4)
-                result[sym]['change_1d_pct'] = round((price - prev) / prev * 100, 2) if prev else None
+        recent_by_sym.setdefault(row[0], []).append((row[1], row[2], row[3]))
+
+    week_cutoff = (now - datetime.timedelta(days=7)).timestamp()
+    for sym, rows in recent_by_sym.items():
+        # Price / change_1d (first 2 rows)
+        price = rows[0][1]
+        result[sym]['price']  = price
+        result[sym]['volume'] = rows[0][2]
+        if len(rows) >= 2:
+            prev = rows[1][1]
+            result[sym]['change_1d']     = round(price - prev, 4)
+            result[sym]['change_1d_pct'] = round((price - prev) / prev * 100, 2) if prev else None
+        # 1W return (rows ordered DESC; find earliest within 7-day window)
+        candidates = [r for r in rows if r[0] <= week_cutoff] or rows
+        ref = candidates[-1][1]
+        if ref:
+            result[sym]['change_1w_pct'] = round((price - ref) / ref * 100, 2)
 
     # Query 2: monthly closes for period returns
-    now = datetime.datetime.now()
     lookbacks = {
-        'change_1m_pct':  now - datetime.timedelta(days=31),
-        'change_3m_pct':  now - datetime.timedelta(days=92),
-        'change_6m_pct':  now - datetime.timedelta(days=183),
-        'change_1y_pct':  now - datetime.timedelta(days=365),
-        'change_3y_pct':  now - datetime.timedelta(days=365*3),
-        'change_5y_pct':  now - datetime.timedelta(days=365*5),
+        'change_1m_pct': now - datetime.timedelta(days=31),
+        'change_3m_pct': now - datetime.timedelta(days=92),
+        'change_6m_pct': now - datetime.timedelta(days=183),
+        'change_1y_pct': now - datetime.timedelta(days=365),
+        'change_3y_pct': now - datetime.timedelta(days=365*3),
+        'change_5y_pct': now - datetime.timedelta(days=365*5),
     }
     cutoff_ts = min(dt.timestamp() for dt in lookbacks.values())
     c.execute(f'''
         SELECT symbol, date, close FROM endofmonth
         WHERE symbol IN ({placeholders}) AND date >= ?
         ORDER BY symbol, date ASC
-    ''', symbols + [cutoff_ts])
+    ''', stale + [cutoff_ts])
     monthly = {}
     for row in c.fetchall():
-        sym = row[0]
-        if sym not in monthly:
-            monthly[sym] = []
-        monthly[sym].append((row[1], row[2]))
+        monthly.setdefault(row[0], []).append((row[1], row[2]))
 
     import bisect
     for sym, rows in monthly.items():
@@ -279,55 +300,23 @@ def enrich_symbols(symbols):
             continue
         dates = [r[0] for r in rows]
         for key, target_dt in lookbacks.items():
-            target_ts = target_dt.timestamp()
-            idx = bisect.bisect_left(dates, target_ts)
-            if idx < len(rows):
-                ref_price = rows[idx][1]
-            elif rows:
-                ref_price = rows[-1][1]
-            else:
-                continue
+            idx = bisect.bisect_left(dates, target_dt.timestamp())
+            ref_price = rows[idx][1] if idx < len(rows) else (rows[-1][1] if rows else None)
             if ref_price:
                 result[sym][key] = round((price - ref_price) / ref_price * 100, 2)
 
-    # Query 3: 1W return (last 10 days per symbol, take earliest)
-    c.execute(f'''
-        SELECT symbol, date, close FROM (
-            SELECT symbol, date, close,
-                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
-            FROM endofday WHERE symbol IN ({placeholders})
-        ) WHERE rn <= 10
-    ''', symbols)
-    week_rows = {}
-    for row in c.fetchall():
-        sym = row[0]
-        if sym not in week_rows:
-            week_rows[sym] = []
-        week_rows[sym].append((row[1], row[2]))
-    week_cutoff = (now - datetime.timedelta(days=7)).timestamp()
-    for sym, rows in week_rows.items():
-        price = result[sym].get('price')
-        if not price:
-            continue
-        candidates = [r for r in rows if r[0] <= week_cutoff]
-        if not candidates:
-            candidates = rows  # fallback to oldest available
-        ref_price = candidates[-1][1]
-        if ref_price:
-            result[sym]['change_1w_pct'] = round((price - ref_price) / ref_price * 100, 2)
-
-    # Query 4: 52W high/low
+    # Query 3: 52W high/low
     cutoff_52w = (now - datetime.timedelta(days=365)).timestamp()
     c.execute(f'''
         SELECT symbol, MAX(high), MIN(low) FROM endofday
         WHERE symbol IN ({placeholders}) AND date >= ?
         GROUP BY symbol
-    ''', symbols + [cutoff_52w])
+    ''', stale + [cutoff_52w])
     for row in c.fetchall():
         result[row[0]]['high_52w'] = row[1]
-        result[row[0]]['low_52w'] = row[2]
+        result[row[0]]['low_52w']  = row[2]
 
-    # Query 5: latest short %
+    # Query 4: latest short %
     c.execute(f'''
         SELECT s.symbol, s.short FROM shorts s
         INNER JOIN (
@@ -335,21 +324,25 @@ def enrich_symbols(symbols):
             WHERE symbol IN ({placeholders})
             GROUP BY symbol
         ) m ON s.symbol = m.symbol AND s.date = m.max_date
-    ''', symbols)
+    ''', stale)
     for row in c.fetchall():
         result[row[0]]['short_pct'] = row[1]
 
-    # Query 6: shares for mcap
+    # Query 5: shares for mcap, name, industry
     c.execute(f'''
         SELECT symbol, name, industry, shares FROM symbols
         WHERE symbol IN ({placeholders})
-    ''', symbols)
+    ''', stale)
     for row in c.fetchall():
-        result[row[0]]['name'] = row[1]
+        result[row[0]]['name']     = row[1]
         result[row[0]]['industry'] = row[2]
         price = result[row[0]].get('price')
         if row[3] and price:
             result[row[0]]['mcap'] = millify(row[3] * price)
+
+    # Store in cache
+    for s in stale:
+        _enrich_cache[s] = (now_ts, result[s])
 
     return result
 
