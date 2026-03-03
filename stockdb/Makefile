@@ -30,6 +30,9 @@ fetch_shorts:
 	python3 fetch_shorts.py
 	python3 stockdb.py --db $(DB) --shorts
 
+fetch_eod_daily:
+	python3 fetch_eod_daily.py --db $(DB)
+
 asx-eod-data/eod.csv asx-eod-data/eom.csv:
 	(mkdir asx-eod-data/tmp; \
 	cd asx-eod-data/tmp; \

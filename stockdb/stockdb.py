@@ -48,7 +48,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists endofday')
-        c.execute('create table endofday (symbol text, date datetime, open real, high real, low real, close real, volume int)')
+        c.execute('create table if not exists endofday (symbol text, date datetime, open real, high real, low real, close real, volume int)')
         c.close()
 
     def CreateTableEndOfMonth(self, drop):
@@ -56,7 +56,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists endofmonth')
-        c.execute('create table endofmonth (symbol text, date datetime, close real)')
+        c.execute('create table if not exists endofmonth (symbol text, date datetime, close real)')
         c.close()
 
     def CreateIndexesShorts(self):
@@ -363,12 +363,7 @@ if __name__ == "__main__":
 
     if build_eod:
         # EndOfDay
-        try:
-            stockdb.CreateTableEndOfDay(drop_eod)
-        except sqlite3.OperationalError as error:
-            # table already exists
-            print("Database %s already exists, Use --drop to recreate" %(args.db,))
-            sys.exit(1)
+        stockdb.CreateTableEndOfDay(drop_eod)
 
         # Price data - see README.md for how that's obtained
         # The input CSV is in the form:
@@ -383,15 +378,25 @@ if __name__ == "__main__":
                 except Exception as error:
                     print("Insert into endofday failed", error, row)
                     sys.exit(1)
+
+        if not drop_eod:
+            # Date-bounded merge: delete rows up to the max date in the CSV, then
+            # reinsert — this preserves any Yahoo Finance rows for newer dates.
+            max_eod_date = 0
+            for row in csv.reader(open(eod, 'r')):
+                try:
+                    d = parse_date(row[1].strip())
+                    if d > max_eod_date:
+                        max_eod_date = d
+                except Exception:
+                    pass
+            print(f"  Deleting endofday rows up to {max_eod_date} (date-bounded merge)")
+            c.execute('DELETE FROM endofday WHERE date <= ?', (max_eod_date,))
+
         c.executemany('insert into endofday values (?, ?, ?, ?, ?, ?, ?)', _eod_rows())
 
         # EndOfMonth
-        try:
-            stockdb.CreateTableEndOfMonth(drop_eod)
-        except sqlite3.OperationalError as error:
-            # table already exists
-            print("Database %s already exists, Use --drop to recreate" %(args.db,))
-            sys.exit(1)
+        stockdb.CreateTableEndOfMonth(drop_eod)
 
         # EOM data - The Makefile generates the subset of eod into eom.csv
         eom = 'asx-eod-data/eom.csv'
@@ -403,6 +408,18 @@ if __name__ == "__main__":
                 except Exception as error:
                     print("Insert into endofmonth failed", error, row)
                     sys.exit(1)
+
+        if not drop_eod:
+            max_eom_date = 0
+            for row in csv.reader(open(eom, 'r')):
+                try:
+                    d = parse_date(row[1].strip())
+                    if d > max_eom_date:
+                        max_eom_date = d
+                except Exception:
+                    pass
+            c.execute('DELETE FROM endofmonth WHERE date <= ?', (max_eom_date,))
+
         c.executemany('insert into endofmonth values (?, ?, ?)', _eom_rows())
 
         # Fix known eoddata.com decimal-point artifacts in XAO index data.
