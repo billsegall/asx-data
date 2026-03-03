@@ -155,7 +155,7 @@ def main():
                     GROUP BY symbol, ym
                 ) m ON e.symbol = m.symbol AND e.date = m.max_date
             """,
-            months + months,
+            months,
         )
 
     db.commit()
