@@ -4,6 +4,7 @@
 # Frontend calls this instead of importing stockdb directly.
 
 import bisect, datetime, json, math, os, sqlite3, time
+import yfinance as yf
 from flask import Flask, jsonify, request, abort
 
 # stockdb is on PYTHONPATH (../stockdb when running locally, /stockdb in Docker)
@@ -27,6 +28,12 @@ def millify(n):
 
 def date2human(ts):
     return datetime.datetime.fromtimestamp(ts).strftime('%Y%m%d')
+
+
+## Quote cache (live prices from Yahoo Finance)
+
+_quote_cache = {}
+_QUOTE_TTL   = 300  # seconds
 
 
 ## Enrichment cache
@@ -279,3 +286,33 @@ def api_symbol_info(symbol):
         if row:
             mcap = shares * row[0]
     return jsonify({'name': name, 'industry': industry, 'mcap': millify(mcap) if mcap else None})
+
+
+@app.route('/api/quote/<symbol>')
+def api_quote(symbol):
+    """Live price from Yahoo Finance, cached for 5 minutes."""
+    symbol = symbol.strip().upper()
+    now_ts = time.time()
+    entry = _quote_cache.get(symbol)
+    if entry and now_ts - entry[0] < _QUOTE_TTL:
+        return jsonify(entry[1])
+
+    yf_ticker = '^AORD' if symbol == 'XAO' else f'{symbol}.AX'
+    try:
+        fi = yf.Ticker(yf_ticker).fast_info
+        price = fi.last_price
+        prev_close = fi.previous_close
+        if not price:
+            abort(503)
+        data = {
+            'symbol':     symbol,
+            'price':      round(float(price), 3),
+            'prev_close': round(float(prev_close), 3) if prev_close else None,
+            'change':     round(float(price - prev_close), 3) if prev_close else None,
+            'change_pct': round(float((price - prev_close) / prev_close * 100), 2) if prev_close else None,
+        }
+    except Exception:
+        abort(503)
+
+    _quote_cache[symbol] = (now_ts, data)
+    return jsonify(data)
