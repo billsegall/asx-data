@@ -13,6 +13,8 @@ import argparse, datetime, math, sqlite3, sys, time
 import yfinance as yf
 import pandas as pd
 
+BATCH_DELAY = 150  # seconds between batches; ~1 hr total for ~23 batches
+
 BATCH_SIZE = 200
 
 
@@ -24,6 +26,8 @@ def to_unix(d):
 def main():
     parser = argparse.ArgumentParser(description='Fetch daily EOD data from Yahoo Finance')
     parser.add_argument('--db', default='stockdb.db', help='sqlite3 database')
+    parser.add_argument('--delay', type=float, default=BATCH_DELAY,
+                        help=f'Seconds to sleep between batches (default: {BATCH_DELAY})')
     args = parser.parse_args()
 
     db = sqlite3.connect(args.db)
@@ -121,6 +125,9 @@ def main():
             batch_rows += 1
 
         print(f" {batch_rows} rows")
+
+        if args.delay > 0 and (i + BATCH_SIZE) < len(tickers):
+            time.sleep(args.delay)
 
     if rows_to_insert:
         c.executemany('INSERT INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', rows_to_insert)
