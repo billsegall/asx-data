@@ -20,6 +20,8 @@ def to_unix(d):
 
 
 def _ratio_to_desc(ratio):
+    if not math.isfinite(ratio):
+        return "Split"
     if ratio >= 1:
         return f"{round(ratio)}:1 Split"
     denom = round(1 / ratio)
@@ -27,7 +29,9 @@ def _ratio_to_desc(ratio):
 
 
 def _ratio_to_type(ratio):
-    return 'split' if ratio >= 1 else 'consolidation'
+    if not math.isfinite(ratio) or ratio >= 1:
+        return 'split'
+    return 'consolidation'
 
 
 def redownload_history(sym, db_cursor, db):
@@ -128,8 +132,8 @@ def main():
             continue
 
         for split_date, ratio in splits.items():
-            if abs(ratio - 1.0) < 0.1:
-                continue  # near-1.0 events (dividend adjustments, no-ops)
+            if not math.isfinite(ratio) or abs(ratio - 1.0) < 0.1:
+                continue  # non-finite or near-1.0 events
 
             # Normalise date to Unix timestamp
             d = split_date.date() if hasattr(split_date, 'date') else split_date
