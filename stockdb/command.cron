@@ -1,7 +1,7 @@
 # Edit this file to introduce tasks to be run by cron.
-#
+# 
 # For more information see the manual pages of crontab(5) and cron(8)
-#
+# 
 # m h  dom mon dow   command
 SHELL=/bin/bash
 STOCKDB=/home/bill/code/asx-data/stockdb
