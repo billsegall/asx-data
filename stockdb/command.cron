@@ -1,17 +1,37 @@
-# ASX data fetch schedule
+# Edit this file to introduce tasks to be run by cron.
 #
-# Fetch symbols on the first trading day of each month.
-# Fetch short positions on every trading day (Mon–Fri).
+# For more information see the manual pages of crontab(5) and cron(8)
 #
-# "First trading day" = 1st of month if Mon–Fri, else the following Monday.
-# Public holidays are not accounted for.
-#
-# Install:  crontab command.cron
-
+# m h  dom mon dow   command
 SHELL=/bin/bash
-STOCKDB=/home/bill/src/asx-data/stockdb
+STOCKDB=/home/bill/code/asx-data/stockdb
+
 # First trading day of each month at 08:00 — symbols
 0 8 1-3 * 1-5 { [ "$(date +\%d)" = "01" ] || [ "$(date +\%u)" = "1" ]; } && make -C $STOCKDB fetch_symbols
 
 # Every trading day at 08:00 — short positions
 0 8 * * 1-5 make -C $STOCKDB fetch_shorts
+
+# Every trading day at 08:00 — announcements
+0 7 * * 1-5 /bin/python3 /home/bill/code/asx-announcements/asx_scraper.py >> /home/bill/code/asx-announcements/logs/scraper.log 2>&1
+
+# Every week at 08:15 - splits
+0 8 * * 1-5 /bin/python3 $STOCKDB/fetch_splits.py --db stockdb/stockdb.db
+
+# Deploy the backend
+# */5 * * * * /home/bill/code/asx-data/deploy.sh >> /home/bill/code/asx-data/deploy.log 2>&1
+
+# Daily EOD from Yahoo Finance — weekdays at 18:30
+30 18 * * 1-5 python3 $STOCKDB/fetch_eod_daily.py --db $STOCKDB/stockdb.db >> $STOCKDB/logs/eod_daily.log 2>&1
+
+# Today's ASX announcements — fetched throughout the trading day (AEST)
+1 8 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+2 9 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+33 9 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+44 9 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+59 9 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+15 10 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+45 11 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+45 13 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+45 15 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
+15 17 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
