@@ -214,6 +214,17 @@ def api_stock(symbol):
     )
     shorts_data = [[int(r[0]) * 1000, r[1]] for r in c.fetchall()]
 
+    try:
+        c.execute(
+            'SELECT date*1000, ratio, event_type, description FROM corporate_events '
+            'WHERE symbol = ? ORDER BY date ASC',
+            (symbol,)
+        )
+        splits = [{'date': r[0], 'ratio': r[1], 'type': r[2], 'description': r[3]}
+                  for r in c.fetchall()]
+    except Exception:
+        splits = []
+
     return jsonify({
         'symbol': symbol,
         'info': {
@@ -224,6 +235,7 @@ def api_stock(symbol):
         'ohlcv': ohlcv,
         'xao': xao,
         'shorts': shorts_data,
+        'splits': splits,
     })
 
 

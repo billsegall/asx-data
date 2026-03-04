@@ -59,6 +59,22 @@ class StockDB:
         c.execute('create table if not exists endofmonth (symbol text, date datetime, close real)')
         c.close()
 
+    def CreateTableCorporateEvents(self, drop=False):
+        '''Create the corporate_events table (splits/consolidations)'''
+        c = self.db.cursor()
+        if drop:
+            c.execute('DROP TABLE IF EXISTS corporate_events')
+        c.execute('''CREATE TABLE IF NOT EXISTS corporate_events (
+            symbol      TEXT    NOT NULL,
+            date        INTEGER NOT NULL,
+            event_type  TEXT    NOT NULL,
+            ratio       REAL    NOT NULL,
+            description TEXT,
+            PRIMARY KEY (symbol, date)
+        )''')
+        self.db.commit()
+        c.close()
+
     def CreateIndexesShorts(self):
         c = self.db.cursor()
         print("Creating shorts indexes...")
