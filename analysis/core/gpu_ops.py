@@ -131,16 +131,61 @@ def compute_ic_series(
     lag: int,
     mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute Spearman IC at each date.
+    """Compute Spearman IC at each date — fully vectorized on GPU.
 
-    feature[sym, t] is compared to forward_returns[sym, t + lag].
-    Returns (N_dates,) tensor with NaN for dates with insufficient data.
+    Ranks all dates simultaneously via argsort on dim=0, then computes
+    Pearson correlation of ranks (= Spearman) via batch dot products.
+    No Python loop over dates; processes the full (N_sym × T) matrix at once.
+
+    feature[sym, t] compared to forward_returns[sym, t+lag].
+    Returns (N_dates,) tensor with NaN for dates with < 10 valid symbols.
     """
     N, T = feature.shape
-    ic = torch.full((T,), float('nan'), device=feature.device)
-    for t in range(T - lag):
-        ic[t] = _spearman_ic(feature[:, t], forward_returns[:, t + lag], mask[:, t] & mask[:, t + lag])
-    return ic
+    T2 = T - lag
+
+    # Align: feature at t vs forward_return at t+lag
+    feat = feature[:, :T2]
+    fwd  = forward_returns[:, lag:lag + T2]
+    m    = mask[:, :T2] & mask[:, lag:lag + T2] & ~torch.isnan(feat) & ~torch.isnan(fwd)
+
+    # Fill invalid entries with -inf so they sort to the bottom
+    SENTINEL = torch.tensor(float('-inf'), device=feature.device, dtype=feature.dtype)
+    feat_fill = torch.where(m, feat, SENTINEL)
+    fwd_fill  = torch.where(m, fwd,  SENTINEL)
+
+    # Rank along N (symbols) for every date simultaneously: (N, T2)
+    def _batch_rank(x):
+        order = x.argsort(dim=0)          # ascending; -inf goes first
+        ranks = torch.empty_like(order, dtype=torch.float32)
+        rows  = torch.arange(N, device=x.device).unsqueeze(1).expand_as(order)
+        ranks.scatter_(0, order, rows.float())
+        return ranks
+
+    rank_feat = _batch_rank(feat_fill)    # (N, T2)
+    rank_fwd  = _batch_rank(fwd_fill)     # (N, T2)
+
+    # Zero out invalid positions
+    rank_feat = torch.where(m, rank_feat, torch.zeros_like(rank_feat))
+    rank_fwd  = torch.where(m, rank_fwd,  torch.zeros_like(rank_fwd))
+
+    n_valid = m.sum(dim=0).float()        # (T2,)
+
+    # Centre ranks per date
+    mu_feat = rank_feat.sum(dim=0) / n_valid.clamp(min=1)
+    mu_fwd  = rank_fwd.sum(dim=0)  / n_valid.clamp(min=1)
+    feat_c  = torch.where(m, rank_feat - mu_feat.unsqueeze(0), torch.zeros_like(rank_feat))
+    fwd_c   = torch.where(m, rank_fwd  - mu_fwd.unsqueeze(0),  torch.zeros_like(rank_fwd))
+
+    # Pearson on ranks = Spearman
+    num = (feat_c * fwd_c).sum(dim=0)
+    den = feat_c.norm(dim=0) * fwd_c.norm(dim=0)
+    ic_vals = torch.where(den > 1e-8, num / den, torch.tensor(float('nan'), device=feature.device))
+    ic_vals = torch.where(n_valid >= 10, ic_vals, torch.tensor(float('nan'), device=feature.device))
+
+    # Pad back to length T
+    result = torch.full((T,), float('nan'), device=feature.device)
+    result[:T2] = ic_vals
+    return result
 
 
 def compute_ic_stats(ic_series: torch.Tensor) -> dict:
