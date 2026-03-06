@@ -131,6 +131,20 @@ function buildChart(canvasId, sigData, sigKey) {
     spanGaps: true,
   });
 
+  // XAO scaled to invested amount
+  if (sigData.xao) {
+    datasets.push({
+      label: 'XAO (scaled)',
+      data: sigData.xao.map((v, j) => ({ x: dates[j], y: v })),
+      borderColor: '#f9fafb',
+      borderWidth: 1.5,
+      borderDash: [6, 3],
+      pointRadius: 0,
+      tension: 0.3,
+      spanGaps: true,
+    });
+  }
+
   const ctx = document.getElementById(canvasId).getContext('2d');
   return new Chart(ctx, {
     type: 'line',

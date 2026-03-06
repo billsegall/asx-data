@@ -72,6 +72,35 @@ def compute_top10(signal, fm_train, eligible):
     return ranked[:TOP_N]
 
 
+def build_xao_series(bt_eod_df, dates_ms, invested):
+    """Return XAO scaled to `invested` at the first available date, aligned to dates_ms."""
+    xao = bt_eod_df[bt_eod_df['symbol'] == 'XAO'].copy()
+    xao = xao.drop_duplicates(subset=['date'], keep='last').set_index('date')['close'].sort_index()
+    if xao.empty:
+        return None
+
+    # Build a lookup: date_ms -> close
+    xao_ms = {int(d.timestamp() * 1000): float(v) for d, v in xao.items()}
+
+    # Find entry price (first date_ms that has XAO data)
+    entry_price = None
+    for d in dates_ms:
+        if d in xao_ms:
+            entry_price = xao_ms[d]
+            break
+    if not entry_price:
+        return None
+
+    # Build aligned series, forward-filling gaps
+    values = []
+    last = None
+    for d in dates_ms:
+        if d in xao_ms:
+            last = round(invested * xao_ms[d] / entry_price, 2)
+        values.append(last)
+    return values
+
+
 def build_portfolio_series(top10_symbols, bt_eod_df, sym_meta):
     """For each symbol, compute daily $1000 holding value over backtest period.
 
@@ -207,6 +236,7 @@ def main():
         pnl_pct = (current / invested - 1) * 100 if invested > 0 else 0
         print(f"  Invested: ${invested:,.0f}  Current: ${current:,.0f}  P&L: {pnl_pct:+.1f}%")
 
+        series['xao'] = build_xao_series(bt_eod, series['dates_ms'], series['invested'])
         result['signals'][signal.name] = series
         torch.cuda.empty_cache()
 
@@ -226,12 +256,14 @@ def main():
         vals = np.array([v if v is not None else np.nan for v in h['values']])
         combined_total += np.where(np.isnan(vals), 0, vals)
 
+    combined_invested = INVESTMENT_PER_STOCK * len(combined_holdings)
     result['combined'] = {
         'holdings': combined_holdings,
         'dates_ms': all_dates_ms or [],
         'total': [round(float(v), 2) if v > 0 else None for v in combined_total],
-        'invested': INVESTMENT_PER_STOCK * len(combined_holdings),
+        'invested': combined_invested,
         'current_total': round(float(combined_total[-1]), 2) if len(combined_total) else None,
+        'xao': build_xao_series(bt_eod, all_dates_ms or [], combined_invested),
     }
     combined_pnl = (result['combined']['current_total'] / result['combined']['invested'] - 1) * 100
     print(f"\n[portfolio_backtest] Combined: {len(combined_holdings)} stocks  "
