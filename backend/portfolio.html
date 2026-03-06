@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASX Portfolio Backtest</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    .tab-btn { transition: all .15s; }
+    .tab-btn.active { background: rgb(79 70 229); color: white; }
+    .tab-btn:not(.active) { color: rgb(156 163 175); }
+    .tab-btn:not(.active):hover { color: white; }
+    .up { color: #34d399; }
+    .dn { color: #f87171; }
+  </style>
+</head>
+<body class="dark bg-gray-900 text-gray-100 min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-2">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Portfolio Backtest</h1>
+      <p class="text-sm text-gray-500 mt-1" id="subtitle">Loading…</p>
+    </div>
+    <a href="/signals" class="text-sm text-indigo-400 hover:text-indigo-300">← Signal Rankings</a>
+  </div>
+
+  <!-- Methodology note -->
+  <p class="text-gray-400 text-sm leading-relaxed mb-8 max-w-3xl">
+    Each signal was scored on historical data up to the training cutoff. The top 10 stocks by score were
+    selected and a hypothetical <strong class="text-white">$1,000</strong> was invested in each at the closing
+    price on entry day. The chart tracks the daily value of each holding through the out-of-sample backtest
+    period — data the signals never saw. No transaction costs, slippage, or dividends are modelled.
+  </p>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-6 flex-wrap">
+    <button class="tab-btn active px-4 py-1.5 rounded text-sm font-medium" onclick="showTab('combined')">All Signals</button>
+    <button class="tab-btn px-4 py-1.5 rounded text-sm font-medium" onclick="showTab('short_trend')">Short Trend</button>
+    <button class="tab-btn px-4 py-1.5 rounded text-sm font-medium" onclick="showTab('short_squeeze')">Short Squeeze</button>
+    <button class="tab-btn px-4 py-1.5 rounded text-sm font-medium" onclick="showTab('volume_anomaly')">Volume Anomaly</button>
+  </div>
+
+  <!-- Panel container -->
+  <div id="panels"></div>
+
+</div>
+
+<script>
+const API = '';
+let DATA = null;
+let activeChart = null;
+
+const SIGNAL_META = {
+  combined:      { label: 'All Signals Combined', color: '#818cf8' },
+  short_trend:   { label: 'Short Trend',           color: '#818cf8' },
+  short_squeeze: { label: 'Short Squeeze',         color: '#fbbf24' },
+  volume_anomaly:{ label: 'Volume Anomaly',        color: '#34d399' },
+};
+
+const STOCK_COLORS = [
+  '#60a5fa','#f472b6','#34d399','#fbbf24','#a78bfa',
+  '#f87171','#38bdf8','#fb923c','#a3e635','#e879f9',
+];
+
+function fmt(v, dec=2) {
+  if (v == null) return '—';
+  return v.toFixed(dec);
+}
+function fmtMoney(v) {
+  if (v == null) return '—';
+  return '$' + v.toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtPct(v) {
+  if (v == null) return '—';
+  const sign = v >= 0 ? '+' : '';
+  return `${sign}${v.toFixed(1)}%`;
+}
+function pnlClass(v) { return v == null ? '' : (v >= 0 ? 'up' : 'dn'); }
+
+function buildChart(canvasId, sigData, sigKey) {
+  const meta = SIGNAL_META[sigKey];
+  const dates = sigData.dates_ms;
+
+  const datasets = [];
+
+  // Individual stock lines (thin, faded)
+  sigData.holdings.forEach((h, i) => {
+    const vals = h.values.map((v, j) => ({ x: dates[j], y: v }));
+    datasets.push({
+      label: h.symbol,
+      data: vals,
+      borderColor: STOCK_COLORS[i % STOCK_COLORS.length],
+      borderWidth: 1.2,
+      pointRadius: 0,
+      tension: 0.3,
+      spanGaps: true,
+      borderDash: [],
+      opacity: 0.6,
+    });
+  });
+
+  // Total portfolio line (bold)
+  const totalVals = sigData.total.map((v, j) => ({ x: dates[j], y: v }));
+  datasets.push({
+    label: 'Portfolio Total',
+    data: totalVals,
+    borderColor: meta.color,
+    borderWidth: 3,
+    pointRadius: 0,
+    tension: 0.3,
+    spanGaps: true,
+  });
+
+  // Invested baseline
+  datasets.push({
+    label: 'Invested',
+    data: dates.map(d => ({ x: d, y: sigData.invested })),
+    borderColor: '#4b5563',
+    borderWidth: 1,
+    borderDash: [4, 4],
+    pointRadius: 0,
+    spanGaps: true,
+  });
+
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${fmtMoney(ctx.parsed.y)}`,
+          },
+          backgroundColor: '#1f2937',
+          borderColor: '#374151',
+          borderWidth: 1,
+          titleColor: '#f9fafb',
+          bodyColor: '#d1d5db',
+        },
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          grid: { color: '#1f2937' },
+          ticks: { color: '#6b7280' },
+        },
+        y: {
+          grid: { color: '#1f2937' },
+          ticks: { color: '#6b7280', callback: v => '$' + v.toLocaleString() },
+        },
+      },
+    },
+  });
+}
+
+function buildTable(holdings) {
+  const sorted = [...holdings].sort((a, b) => (b.pnl_pct ?? -999) - (a.pnl_pct ?? -999));
+  const rows = sorted.map(h => `
+    <tr class="hover:bg-gray-800 transition border-b border-gray-800">
+      <td class="px-3 py-2 font-mono font-semibold text-white text-sm">
+        <a href="/stock/${h.symbol}" target="_blank" class="hover:text-indigo-300">${h.symbol}</a>
+      </td>
+      <td class="px-3 py-2 text-gray-300 text-sm max-w-xs truncate">${h.name || '—'}</td>
+      <td class="px-3 py-2 text-gray-400 text-xs">${h.industry || '—'}</td>
+      <td class="px-3 py-2 text-sm tabular-nums text-gray-300">$${h.entry_price?.toFixed(3) ?? '—'}</td>
+      <td class="px-3 py-2 text-sm tabular-nums text-gray-300">$${h.current_price?.toFixed(3) ?? '—'}</td>
+      <td class="px-3 py-2 text-sm tabular-nums ${pnlClass(h.pnl)}">${h.pnl != null ? (h.pnl >= 0 ? '+' : '') + fmtMoney(h.pnl) : '—'}</td>
+      <td class="px-3 py-2 text-sm tabular-nums font-medium ${pnlClass(h.pnl_pct)}">${fmtPct(h.pnl_pct)}</td>
+      <td class="px-3 py-2 text-sm tabular-nums text-white">${fmtMoney(h.current_value)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="overflow-x-auto rounded-lg border border-gray-700 mt-6">
+      <table class="min-w-full">
+        <thead class="bg-gray-800">
+          <tr>
+            ${['Symbol','Name','Industry','Entry','Current','P&L $','P&L %','Value'].map(h =>
+              `<th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">${h}</th>`
+            ).join('')}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function buildSummaryBar(sigData, label, color) {
+  const invested = sigData.invested;
+  const current = sigData.current_total;
+  const pnl = current - invested;
+  const pnlPct = (current / invested - 1) * 100;
+  const cls = pnl >= 0 ? 'up' : 'dn';
+  return `
+    <div class="bg-gray-800 rounded-lg p-4 flex flex-col gap-1 border border-gray-700">
+      <div class="text-xs text-gray-400 uppercase tracking-wider">${label}</div>
+      <div class="text-2xl font-bold text-white">${fmtMoney(current)}</div>
+      <div class="text-sm">
+        <span class="text-gray-400">Invested ${fmtMoney(invested)}</span>
+        <span class="${cls} ml-2 font-medium">${fmtPct(pnlPct)}</span>
+        <span class="${cls} ml-1">(${pnl >= 0 ? '+' : ''}${fmtMoney(pnl)})</span>
+      </div>
+    </div>`;
+}
+
+function renderPanel(sigKey) {
+  const sigData = sigKey === 'combined' ? DATA.combined : DATA.signals[sigKey];
+  const meta = SIGNAL_META[sigKey];
+  const canvasId = `chart-${sigKey}`;
+
+  // Summary cards
+  let summaryCards = '';
+  if (sigKey === 'combined') {
+    Object.entries(SIGNAL_META).filter(([k]) => k !== 'combined').forEach(([k, m]) => {
+      if (DATA.signals[k]) summaryCards += buildSummaryBar(DATA.signals[k], m.label, m.color);
+    });
+  }
+
+  const panel = document.createElement('div');
+  panel.id = `panel-${sigKey}`;
+  panel.innerHTML = `
+    ${sigKey === 'combined' ? `<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">${summaryCards}</div>` : ''}
+    <div class="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-6">
+      <div class="flex items-center justify-between mb-1">
+        <span class="font-semibold text-white">${meta.label} — Portfolio Value</span>
+        <span class="text-xs text-gray-500">${sigData.holdings.length} stocks · $${sigData.invested.toLocaleString()} invested</span>
+      </div>
+      <div style="height:320px; position:relative;">
+        <canvas id="${canvasId}"></canvas>
+      </div>
+    </div>
+    ${buildTable(sigData.holdings)}
+  `;
+
+  return panel;
+}
+
+function showTab(sigKey) {
+  // Update button states
+  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+    const keys = ['combined','short_trend','short_squeeze','volume_anomaly'];
+    btn.classList.toggle('active', keys[i] === sigKey);
+  });
+
+  const container = document.getElementById('panels');
+  container.innerHTML = '';
+  if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+  const panel = renderPanel(sigKey);
+  container.appendChild(panel);
+
+  const sigData = sigKey === 'combined' ? DATA.combined : DATA.signals[sigKey];
+  activeChart = buildChart(`chart-${sigKey}`, sigData, sigKey);
+}
+
+async function load() {
+  const resp = await fetch(`${API}/api/analysis/portfolio`);
+  DATA = await resp.json();
+
+  const d = new Date(DATA.generated_at * 1000);
+  document.getElementById('subtitle').textContent =
+    `Entry: ${DATA.entry_date} · $${DATA.investment_per_stock.toLocaleString()} per stock · Top ${DATA.top_n} per signal · Generated ${d.toLocaleString('en-AU')}`;
+
+  showTab('combined');
+}
+
+load();
+</script>
+</body>
+</html>

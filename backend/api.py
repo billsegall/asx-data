@@ -309,6 +309,17 @@ def api_symbol_info(symbol):
 def signals_page():
     return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'signals.html'))
 
+@app.route('/portfolio')
+def portfolio_page():
+    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'portfolio.html'))
+
+@app.route('/api/analysis/portfolio')
+def api_analysis_portfolio():
+    data = _load_analysis_file('portfolio_backtest.json')
+    if data is None:
+        return jsonify({'error': 'No portfolio backtest results available'}), 404
+    return jsonify(data)
+
 
 ## Analysis endpoints (serve pre-computed results from analysis/results/)
 
