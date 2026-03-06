@@ -5,12 +5,17 @@
 
 import bisect, datetime, json, math, os, sqlite3, time
 import yfinance as yf
-from flask import Flask, jsonify, request, abort
+from flask import Flask, jsonify, request, abort, send_file, make_response
 
 # stockdb is on PYTHONPATH (../stockdb when running locally, /stockdb in Docker)
 import stockdb
 
 app = Flask(__name__)
+
+@app.after_request
+def add_cors(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
 
 DATABASE = os.environ.get('DATABASE', '../stockdb/stockdb.db')
 
@@ -298,6 +303,11 @@ def api_symbol_info(symbol):
         if row:
             mcap = shares * row[0]
     return jsonify({'name': name, 'industry': industry, 'mcap': millify(mcap) if mcap else None})
+
+
+@app.route('/signals')
+def signals_page():
+    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'signals.html'))
 
 
 ## Analysis endpoints (serve pre-computed results from analysis/results/)

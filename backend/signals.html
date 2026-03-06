@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASX Signal Analysis</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="dark bg-gray-900 text-gray-100 min-h-screen">
+
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <div class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-white">ASX Signal Analysis</h1>
+      <p id="generated-at" class="text-sm text-gray-500 mt-1"></p>
+    </div>
+    <button onclick="loadAll()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded transition">
+      Refresh
+    </button>
+  </div>
+
+  <!-- Short Trend -->
+  <section class="mb-12">
+    <h2 class="text-xl font-semibold text-indigo-400 mb-2">Short Trend</h2>
+    <p class="text-gray-400 text-sm leading-relaxed mb-5">
+      Ranks stocks by how steeply their short interest has been <em>declining</em> over the past 20 trading days,
+      relative to all other stocks on the same day. A score near 1.0 means this stock has seen the sharpest sustained
+      reduction in short selling — short sellers are covering their positions, which historically is a bullish signal
+      as it suggests bearish conviction is fading. Stocks near 0.0 are seeing shorts increase. The ranking is
+      cross-sectional, so it reflects relative changes rather than absolute short interest levels.
+    </p>
+    <div id="short-trend-status" class="text-gray-500 text-sm">Loading…</div>
+    <div id="short-trend-table"></div>
+  </section>
+
+  <!-- Short Squeeze -->
+  <section class="mb-12">
+    <h2 class="text-xl font-semibold text-amber-400 mb-2">Short Squeeze Candidates</h2>
+    <p class="text-gray-400 text-sm leading-relaxed mb-5">
+      Identifies stocks that are simultaneously in the top 20% of short interest <em>and</em> showing recent positive
+      price momentum. When a heavily shorted stock begins to rise, short sellers face mounting mark-to-market losses
+      and may be forced to buy shares to close their positions — which itself drives the price higher, triggering
+      more covering in a feedback loop. This signal flags stocks where that dynamic may be developing. It is
+      intentionally narrow: only stocks meeting both the high-short and positive-momentum conditions appear, which is
+      why the list is much shorter than the others.
+    </p>
+    <div id="short-squeeze-status" class="text-gray-500 text-sm">Loading…</div>
+    <div id="short-squeeze-table"></div>
+  </section>
+
+  <!-- Volume Anomaly -->
+  <section class="mb-12">
+    <h2 class="text-xl font-semibold text-emerald-400 mb-2">Volume Anomaly</h2>
+    <p class="text-gray-400 text-sm leading-relaxed mb-5">
+      Detects stocks with unusually heavy trading volume moving in the same direction as their recent 5-day price
+      trend. Volume is measured as a z-score against the stock's own 20-day average (log-transformed to reduce the
+      influence of extreme spikes), then multiplied by the sign of recent momentum. A high score means the stock is
+      rising on abnormally high volume — a sign of conviction and broad participation behind the move, rather than a
+      low-liquidity drift. Stocks near the bottom of the list are falling on heavy volume, which can indicate
+      distribution by larger holders.
+    </p>
+    <div id="volume-anomaly-status" class="text-gray-500 text-sm">Loading…</div>
+    <div id="volume-anomaly-table"></div>
+  </section>
+
+</div>
+
+<script>
+const API = '';
+const TOP = 50;
+
+const SIGNALS = [
+  { key: 'short_trend',    tableId: 'short-trend-table',    statusId: 'short-trend-status',    color: 'indigo' },
+  { key: 'short_squeeze',  tableId: 'short-squeeze-table',  statusId: 'short-squeeze-status',  color: 'amber'  },
+  { key: 'volume_anomaly', tableId: 'volume-anomaly-table', statusId: 'volume-anomaly-status', color: 'emerald'},
+];
+
+function scoreBar(score, color) {
+  const pct = Math.round(score * 100);
+  const colors = {
+    indigo: 'bg-indigo-500', amber: 'bg-amber-500', emerald: 'bg-emerald-500'
+  };
+  return `
+    <div class="flex items-center gap-2">
+      <div class="w-24 bg-gray-700 rounded-full h-1.5">
+        <div class="${colors[color]} h-1.5 rounded-full" style="width:${pct}%"></div>
+      </div>
+      <span class="text-xs tabular-nums text-gray-300">${score.toFixed(3)}</span>
+    </div>`;
+}
+
+function formatDate(ts) {
+  return new Date(ts * 1000).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function renderTable(results, color) {
+  if (!results.length) return '<p class="text-gray-600 text-sm">No results.</p>';
+
+  const headers = ['#', 'Symbol', 'Name', 'Industry', 'Score'];
+  const thClass = 'px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider';
+  const head = `<thead class="bg-gray-800"><tr>${headers.map(h => `<th class="${thClass}">${h}</th>`).join('')}</tr></thead>`;
+
+  const rows = results.map((r, i) => {
+    const rank = i + 1;
+    const rowClass = i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-850';
+    const tdClass = 'px-3 py-2 text-sm';
+    return `<tr class="${rowClass} hover:bg-gray-800 transition">
+      <td class="${tdClass} text-gray-500 w-8">${rank}</td>
+      <td class="${tdClass}"><a href="http://harri.tailb1cff.ts.net:5000/stock/${r.symbol}" target="_blank"
+          class="font-mono font-semibold text-white hover:text-indigo-300">${r.symbol}</a></td>
+      <td class="${tdClass} text-gray-300 max-w-xs truncate">${r.name || '—'}</td>
+      <td class="${tdClass} text-gray-400 text-xs">${r.industry || '—'}</td>
+      <td class="${tdClass}">${scoreBar(r.score, color)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="overflow-x-auto rounded-lg border border-gray-700">
+    <table class="min-w-full divide-y divide-gray-700">
+      ${head}
+      <tbody class="divide-y divide-gray-800">${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+async function loadSignal({ key, tableId, statusId, color }) {
+  const statusEl = document.getElementById(statusId);
+  const tableEl  = document.getElementById(tableId);
+  statusEl.textContent = 'Loading…';
+  tableEl.innerHTML = '';
+
+  try {
+    const resp = await fetch(`${API}/api/analysis/signals?signal=${key}&top=${TOP}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const results = data.results || [];
+    statusEl.textContent = `${data.n_total} stocks scored · as of ${formatDate(data.generated_at)}`;
+    tableEl.innerHTML = renderTable(results, color);
+    return data.generated_at;
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+    tableEl.innerHTML = '';
+    return null;
+  }
+}
+
+async function loadAll() {
+  const timestamps = await Promise.all(SIGNALS.map(loadSignal));
+  const latest = timestamps.filter(Boolean).sort().pop();
+  if (latest) {
+    document.getElementById('generated-at').textContent = `Last updated: ${formatDate(latest)}`;
+  }
+}
+
+loadAll();
+</script>
+</body>
+</html>
