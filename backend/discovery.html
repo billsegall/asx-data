@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASX Factor Discovery</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    .sig-bar-wrap { background: #1f2937; border-radius: 4px; height: 6px; }
+    .sig-bar      { height: 6px; border-radius: 4px; transition: width .3s; }
+    .lag-cell     { width: 14px; height: 28px; border-radius: 2px; flex-shrink: 0; }
+    .badge        { font-size: 0.65rem; padding: 1px 6px; border-radius: 9999px; font-weight: 600; letter-spacing: .03em; }
+  </style>
+</head>
+<body class="dark bg-gray-900 text-gray-100 min-h-screen">
+<div class="max-w-5xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Factor Discovery</h1>
+      <p class="text-sm text-gray-500 mt-1" id="subtitle">Loading…</p>
+    </div>
+    <a href="/signals" class="text-sm text-indigo-400 hover:text-indigo-300">← Signal Rankings</a>
+  </div>
+
+  <!-- Explainer -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-5 mb-8 text-sm text-gray-300 leading-relaxed space-y-2">
+    <p>
+      An <strong class="text-white">Information Coefficient (IC)</strong> measures the Spearman rank correlation
+      between a signal computed at time <em>t</em> and the actual stock return at time <em>t + lag</em>.
+      An IC of 0 means no predictive power; ±1 means perfect prediction.
+      In practice, ICs above <strong class="text-white">0.02</strong> are considered meaningful across a large universe.
+    </p>
+    <p>
+      The <strong class="text-white">IC Information Ratio (IC_IR)</strong> divides the mean IC by its standard deviation —
+      analogous to a Sharpe ratio for signals. Values above <strong class="text-white">0.05</strong> are tradeable;
+      above <strong class="text-white">0.10</strong> are considered strong. All p-values are corrected for
+      multiple testing using <strong class="text-white">Benjamini-Hochberg FDR</strong> across all 260 (feature × lag) pairs.
+      The sweep covers <strong class="text-white">25 years</strong> of ASX data (2000–2025) across ~5,000 symbols.
+    </p>
+  </div>
+
+  <!-- Summary bar -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8" id="summary"></div>
+
+  <!-- Feature cards -->
+  <div id="cards" class="space-y-4"></div>
+
+</div>
+
+<script>
+const API = '';
+
+const FEATURE_META = {
+  hl_spread: {
+    label: 'Intraday Volatility',
+    desc: 'Daily high-low range as a percentage of closing price, cross-sectionally ranked. Measures how much a stock moved intraday relative to peers on the same day.',
+  },
+  hl_z20: {
+    label: 'Intraday Volatility Z-Score',
+    desc: 'Intraday range standardised against the stock\'s own 20-day history. A high score means today\'s range was unusually wide compared to its recent norm.',
+  },
+  returns_1d: {
+    label: 'Prior Day Return',
+    desc: 'The raw percentage return from the previous trading day\'s close to today\'s close.',
+  },
+  returns_z20: {
+    label: 'Return Z-Score (20d)',
+    desc: 'Today\'s return standardised against the stock\'s own 20-day return history. Captures whether a stock\'s move was large relative to its own recent volatility.',
+  },
+  returns_z5: {
+    label: 'Return Z-Score (5d)',
+    desc: 'Today\'s return standardised against the stock\'s own 5-day return history — a shorter-window version of the above, more sensitive to recent behaviour.',
+  },
+  returns_slope20: {
+    label: 'Return Trend (20d slope)',
+    desc: 'The linear slope of daily returns over the past 20 days. Positive values indicate an accelerating uptrend; negative values a deteriorating trend.',
+  },
+  log_volume: {
+    label: 'Log Volume',
+    desc: 'Natural log of daily trading volume. Log-transformation reduces the influence of extreme volume spikes and makes the distribution closer to normal.',
+  },
+  volume_z20: {
+    label: 'Volume Z-Score (20d)',
+    desc: 'Today\'s log-volume standardised against the stock\'s own 20-day average. Captures unusual activity relative to the stock\'s own trading history.',
+  },
+  volume_z5: {
+    label: 'Volume Z-Score (5d)',
+    desc: 'Same as above but using a 5-day baseline — more reactive to very recent shifts in trading interest.',
+  },
+  short_pct: {
+    label: 'Short Interest %',
+    desc: 'The percentage of a company\'s issued capital that is currently sold short, as reported by ASIC. Higher values indicate greater bearish conviction among short sellers.',
+  },
+  short_z20: {
+    label: 'Short Interest Z-Score (20d)',
+    desc: 'Short interest standardised against the stock\'s own 20-day short history. Captures whether short selling is elevated or declining relative to its own recent norm.',
+  },
+  short_slope20: {
+    label: 'Short Interest Trend (20d slope)',
+    desc: 'The linear slope of daily short interest over the past 20 days. A rising slope means short sellers are increasing positions; falling means they are covering.',
+  },
+  gap: {
+    label: 'Overnight Gap',
+    desc: 'The percentage difference between today\'s open and yesterday\'s close. Positive gaps indicate bullish overnight sentiment; negative gaps the reverse.',
+  },
+};
+
+const STRENGTH = [
+  { min: 0.20, label: 'Very Strong', color: 'bg-emerald-400 text-gray-900' },
+  { min: 0.10, label: 'Strong',      color: 'bg-emerald-600 text-white'   },
+  { min: 0.05, label: 'Moderate',    color: 'bg-yellow-600 text-white'    },
+  { min: 0.02, label: 'Weak',        color: 'bg-orange-700 text-white'    },
+  { min: 0,    label: 'Marginal',    color: 'bg-gray-600 text-gray-300'   },
+];
+
+function strength(icir) {
+  const v = Math.abs(icir);
+  return STRENGTH.find(s => v >= s.min) || STRENGTH[STRENGTH.length - 1];
+}
+
+function pFmt(p) {
+  if (p < 1e-10) return '< 1e-10';
+  if (p < 0.001) return p.toExponential(1);
+  return p.toFixed(4);
+}
+
+function sigStars(p) {
+  if (p < 0.001) return '★★★';
+  if (p < 0.01)  return '★★';
+  if (p < 0.05)  return '★';
+  return '';
+}
+
+function buildLagChart(byLag, maxAbsIcir) {
+  // One bar per lag 1–20
+  const bars = Array.from({length: 20}, (_, i) => {
+    const lag = i + 1;
+    const row = byLag[lag];
+    if (!row) return `<div class="lag-cell bg-gray-800" title="lag ${lag}: no data"></div>`;
+    const icir = row.ic_ir;
+    const pct = Math.min(100, Math.abs(icir) / (maxAbsIcir || 1) * 100);
+    const isNeg = icir < 0;
+    const isSig = row.fdr_significant;
+    const color = isSig
+      ? (isNeg ? 'bg-red-500' : 'bg-emerald-500')
+      : (isNeg ? 'bg-red-900' : 'bg-emerald-900');
+    const title = `Lag ${lag}d: IC_IR=${icir.toFixed(3)}, p=${pFmt(row.fdr_corrected_p)}${isSig ? ' ✓' : ''}`;
+    return `<div class="lag-cell ${color}" style="opacity:${0.3 + 0.7 * pct / 100}" title="${title}"></div>`;
+  }).join('');
+
+  return `
+    <div>
+      <div class="flex gap-0.5 mb-1">${bars}</div>
+      <div class="flex justify-between text-xs text-gray-600">
+        <span>Lag 1d</span><span>20d</span>
+      </div>
+      <div class="flex gap-3 mt-1 text-xs text-gray-500">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-emerald-500 inline-block"></span>positive (significant)</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-red-500 inline-block"></span>negative (significant)</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-gray-700 inline-block"></span>not significant</span>
+      </div>
+    </div>`;
+}
+
+function buildCard(feature, rows, globalMax) {
+  const meta = FEATURE_META[feature] || { label: feature, desc: '' };
+
+  // Best row by abs IC_IR
+  const best = rows.reduce((a, b) => Math.abs(b.ic_ir) > Math.abs(a.ic_ir) ? b : a);
+  const byLag = Object.fromEntries(rows.map(r => [r.lag, r]));
+  const nSig = rows.filter(r => r.fdr_significant).length;
+  const str = strength(best.ic_ir);
+  const direction = best.ic_ir < 0 ? 'Mean-Reversion' : 'Momentum';
+  const dirColor = best.ic_ir < 0 ? 'text-red-400 bg-red-900/30' : 'text-emerald-400 bg-emerald-900/30';
+  const barPct = Math.min(100, Math.abs(best.ic_ir) / (globalMax || 1) * 100);
+  const barColor = best.ic_ir < 0 ? 'bg-red-500' : 'bg-emerald-500';
+  const stars = sigStars(best.fdr_corrected_p);
+
+  return `
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+      <div class="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <div class="flex items-center gap-2 flex-wrap mb-1">
+            <h3 class="font-semibold text-white">${meta.label}</h3>
+            <span class="badge ${str.color}">${str.label}</span>
+            <span class="badge ${dirColor}">${direction}</span>
+            ${stars ? `<span class="text-yellow-400 text-xs">${stars}</span>` : ''}
+          </div>
+          <p class="text-xs font-mono text-gray-500">${feature}</p>
+        </div>
+        <div class="text-right shrink-0">
+          <div class="text-lg font-bold tabular-nums ${best.ic_ir < 0 ? 'text-red-400' : 'text-emerald-400'}">
+            ${best.ic_ir >= 0 ? '+' : ''}${best.ic_ir.toFixed(3)}
+          </div>
+          <div class="text-xs text-gray-400">IC_IR @ lag ${best.lag}d</div>
+        </div>
+      </div>
+
+      <!-- IC_IR bar -->
+      <div class="sig-bar-wrap mb-4">
+        <div class="sig-bar ${barColor}" style="width:${barPct}%"></div>
+      </div>
+
+      <!-- Description -->
+      <p class="text-sm text-gray-300 leading-relaxed mb-4">${meta.desc}</p>
+
+      <!-- Stats grid -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-sm">
+        <div class="bg-gray-900 rounded p-2">
+          <div class="text-xs text-gray-500 mb-0.5">Mean IC</div>
+          <div class="tabular-nums font-medium ${best.mean_ic < 0 ? 'text-red-400' : 'text-emerald-400'}">
+            ${best.mean_ic >= 0 ? '+' : ''}${best.mean_ic.toFixed(4)}
+          </div>
+        </div>
+        <div class="bg-gray-900 rounded p-2">
+          <div class="text-xs text-gray-500 mb-0.5">Std IC</div>
+          <div class="tabular-nums font-medium text-gray-300">${best.std_ic.toFixed(4)}</div>
+        </div>
+        <div class="bg-gray-900 rounded p-2">
+          <div class="text-xs text-gray-500 mb-0.5">t-statistic</div>
+          <div class="tabular-nums font-medium text-gray-300">${best.t_stat.toFixed(2)}</div>
+        </div>
+        <div class="bg-gray-900 rounded p-2">
+          <div class="text-xs text-gray-500 mb-0.5">FDR p-value</div>
+          <div class="tabular-nums font-medium ${best.fdr_corrected_p < 0.05 ? 'text-emerald-400' : 'text-gray-400'}">
+            ${pFmt(best.fdr_corrected_p)}
+          </div>
+        </div>
+        <div class="bg-gray-900 rounded p-2">
+          <div class="text-xs text-gray-500 mb-0.5">Best lag</div>
+          <div class="tabular-nums font-medium text-white">${best.lag} day${best.lag > 1 ? 's' : ''}</div>
+        </div>
+        <div class="bg-gray-900 rounded p-2">
+          <div class="text-xs text-gray-500 mb-0.5">Sig. lags / 20</div>
+          <div class="tabular-nums font-medium text-white">${nSig}</div>
+        </div>
+        <div class="bg-gray-900 rounded p-2 col-span-2">
+          <div class="text-xs text-gray-500 mb-0.5">Interpretation</div>
+          <div class="text-xs text-gray-300">
+            ${interpretIC(best)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Lag chart -->
+      <div class="border-t border-gray-700 pt-3">
+        <div class="text-xs text-gray-500 mb-2 uppercase tracking-wider">IC_IR by lag (1–20 days forward)</div>
+        ${buildLagChart(byLag, globalMax)}
+      </div>
+    </div>`;
+}
+
+function interpretIC(best) {
+  const dir = best.ic_ir < 0 ? 'negatively' : 'positively';
+  const lagDesc = best.lag === 1 ? 'the next trading day'
+    : best.lag <= 5 ? `${best.lag} trading days later`
+    : `${best.lag} trading days (~${Math.round(best.lag / 5)} week${best.lag > 7 ? 's' : ''}) later`;
+  const strength = Math.abs(best.ic_ir);
+  const qualStr = strength >= 0.20 ? 'very strongly'
+    : strength >= 0.10 ? 'strongly'
+    : strength >= 0.05 ? 'moderately'
+    : 'weakly';
+  return `This feature ${qualStr} ${dir} predicts returns ${lagDesc}
+    (IC_IR ${best.ic_ir.toFixed(3)}, t=${best.t_stat.toFixed(1)}).
+    ${best.ic_ir < 0
+      ? 'Stocks ranking high on this signal tend to <em>underperform</em> — a mean-reversion effect.'
+      : 'Stocks ranking high on this signal tend to <em>outperform</em> — a momentum or carry effect.'}`;
+}
+
+async function load() {
+  const resp = await fetch(`${API}/api/analysis/discovery`);
+  const data = await resp.json();
+  const rows = data.results || [];
+
+  // Group by feature
+  const byFeature = {};
+  rows.forEach(r => {
+    if (!byFeature[r.feature]) byFeature[r.feature] = [];
+    byFeature[r.feature].push(r);
+  });
+
+  // Best IC_IR per feature, sorted by abs IC_IR descending
+  const features = Object.entries(byFeature)
+    .map(([f, rs]) => ({ feature: f, rows: rs, best: rs.reduce((a, b) => Math.abs(b.ic_ir) > Math.abs(a.ic_ir) ? b : a) }))
+    .sort((a, b) => Math.abs(b.best.ic_ir) - Math.abs(a.best.ic_ir));
+
+  const globalMax = Math.max(...features.map(f => Math.abs(f.best.ic_ir)));
+  const nSigTotal = rows.filter(r => r.fdr_significant).length;
+  const nFeaturesSig = features.filter(f => f.rows.some(r => r.fdr_significant)).length;
+
+  // Summary bar
+  document.getElementById('summary').innerHTML = [
+    ['Features tested', features.length],
+    ['(Feature, lag) pairs', rows.length],
+    ['Significant pairs', `${nSigTotal} / ${rows.length}`],
+    ['Significant features', `${nFeaturesSig} / ${features.length}`],
+  ].map(([label, val]) => `
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+      <div class="text-2xl font-bold text-white">${val}</div>
+      <div class="text-xs text-gray-400 mt-1">${label}</div>
+    </div>`).join('');
+
+  document.getElementById('subtitle').textContent =
+    `IC sweep · 25 years ASX data · ~5,000 symbols · FDR α=0.05 · ${nSigTotal} significant (feature, lag) pairs`;
+
+  document.getElementById('cards').innerHTML =
+    features.map(f => buildCard(f.feature, f.rows, globalMax)).join('');
+}
+
+load();
+</script>
+</body>
+</html>

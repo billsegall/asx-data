@@ -408,7 +408,7 @@ def api_analysis_backtest():
 
 @app.route('/api/analysis/discovery')
 def api_analysis_discovery():
-    """Top IC sweep results."""
+    """Full IC sweep results — all (feature, lag) pairs."""
     import csv
     csv_path = os.path.join(ANALYSIS_RESULTS_DIR, 'ic_sweep_results.csv')
     if not os.path.exists(csv_path):
@@ -417,19 +417,25 @@ def api_analysis_discovery():
     rows = []
     with open(csv_path) as f:
         reader = csv.DictReader(f)
-        for i, row in enumerate(reader):
-            if i >= 100:
-                break
+        for row in reader:
             rows.append({
                 'feature': row.get('feature'),
                 'lag': int(row.get('lag', 0)),
                 'mean_ic': float(row.get('mean_ic', 0) or 0),
+                'std_ic': float(row.get('std_ic', 0) or 0),
                 'ic_ir': float(row.get('ic_ir', 0) or 0),
+                't_stat': float(row.get('t_stat', 0) or 0),
                 'p_value': float(row.get('p_value', 1) or 1),
+                'n': int(float(row.get('n', 0) or 0)),
                 'fdr_significant': row.get('fdr_significant', 'False') == 'True',
+                'fdr_corrected_p': float(row.get('fdr_corrected_p', 1) or 1),
             })
 
     return jsonify({'results': rows, 'n': len(rows)})
+
+@app.route('/discovery')
+def discovery_page():
+    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'discovery.html'))
 
 
 @app.route('/api/quote/<symbol>')
