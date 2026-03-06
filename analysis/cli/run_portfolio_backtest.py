@@ -195,7 +195,7 @@ def main():
             all_dates_ms = sig_data['dates_ms']
         for h in sig_data['holdings']:
             if h['symbol'] not in all_syms_seen:
-                all_syms_seen[h['symbol']] = h
+                all_syms_seen[h['symbol']] = {**h, 'signal': sig_name}
 
     combined_total = np.zeros(len(all_dates_ms) if all_dates_ms else 0)
     combined_holdings = list(all_syms_seen.values())
