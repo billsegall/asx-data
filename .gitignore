@@ -109,3 +109,9 @@ venv.bak/
 .claude/
 www/.secret_key
 userdata/
+
+# Analysis outputs (large, generated)
+analysis/results/*.json
+analysis/results/*.csv
+analysis/cache/*.parquet
+analysis/logs/*.log

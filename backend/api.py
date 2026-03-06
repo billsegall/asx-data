@@ -300,6 +300,117 @@ def api_symbol_info(symbol):
     return jsonify({'name': name, 'industry': industry, 'mcap': millify(mcap) if mcap else None})
 
 
+## Analysis endpoints (serve pre-computed results from analysis/results/)
+
+ANALYSIS_RESULTS_DIR = os.environ.get('ANALYSIS_RESULTS_DIR', '../analysis/results')
+
+
+def _load_analysis_file(filename: str):
+    """Load a JSON file from the analysis results directory."""
+    path = os.path.join(ANALYSIS_RESULTS_DIR, filename)
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.route('/api/analysis/signals')
+def api_analysis_signals():
+    """Signal rankings. ?signal=short_trend&industry=Gold&top=50"""
+    signal_name = request.args.get('signal', 'short_trend')
+    industry_filter = request.args.get('industry', '').strip()
+    top_n = min(int(request.args.get('top', 50)), 500)
+
+    data = _load_analysis_file(f'predictions_{signal_name}.json')
+    if data is None:
+        # Try generic signal file
+        data = _load_analysis_file(f'signal_{signal_name}.json')
+    if data is None:
+        return jsonify({'error': f'No results for signal: {signal_name}'}), 404
+
+    predictions = data.get('predictions') or data.get('scores', [])
+    if industry_filter:
+        predictions = [p for p in predictions if industry_filter.lower() in p.get('industry', '').lower()]
+    predictions = predictions[:top_n]
+
+    return jsonify({
+        'signal': signal_name,
+        'generated_at': data.get('generated_at'),
+        'n_total': data.get('n_symbols', len(predictions)),
+        'results': predictions,
+    })
+
+
+@app.route('/api/analysis/signal/<symbol>')
+def api_analysis_signal_symbol(symbol):
+    """Per-symbol signal scores across all signals."""
+    symbol = symbol.strip().upper()
+    result = {'symbol': symbol, 'signals': {}}
+
+    for fname in os.listdir(ANALYSIS_RESULTS_DIR) if os.path.isdir(ANALYSIS_RESULTS_DIR) else []:
+        if not (fname.startswith('predictions_') and fname.endswith('.json')):
+            continue
+        data = _load_analysis_file(fname)
+        if not data:
+            continue
+        predictions = data.get('predictions', [])
+        match = next((p for p in predictions if p.get('symbol') == symbol), None)
+        if match:
+            signal_name = data.get('signal', fname)
+            result['signals'][signal_name] = {
+                'score': match.get('score'),
+                'generated_at': data.get('generated_at'),
+            }
+
+    return jsonify(result)
+
+
+@app.route('/api/analysis/backtest')
+def api_analysis_backtest():
+    """Latest backtest reports for all signals."""
+    reports = {}
+    if not os.path.isdir(ANALYSIS_RESULTS_DIR):
+        return jsonify({'error': 'No results directory'}), 404
+
+    for fname in os.listdir(ANALYSIS_RESULTS_DIR):
+        if fname.startswith('backtest_') and fname.endswith('.json'):
+            data = _load_analysis_file(fname)
+            if data:
+                signal_name = data.get('signal_name', fname)
+                reports[signal_name] = data
+
+    if not reports:
+        return jsonify({'error': 'No backtest results available'}), 404
+
+    return jsonify(reports)
+
+
+@app.route('/api/analysis/discovery')
+def api_analysis_discovery():
+    """Top IC sweep results."""
+    import csv
+    csv_path = os.path.join(ANALYSIS_RESULTS_DIR, 'ic_sweep_results.csv')
+    if not os.path.exists(csv_path):
+        return jsonify({'error': 'No IC sweep results available'}), 404
+
+    rows = []
+    with open(csv_path) as f:
+        reader = csv.DictReader(f)
+        for i, row in enumerate(reader):
+            if i >= 100:
+                break
+            rows.append({
+                'feature': row.get('feature'),
+                'lag': int(row.get('lag', 0)),
+                'mean_ic': float(row.get('mean_ic', 0) or 0),
+                'ic_ir': float(row.get('ic_ir', 0) or 0),
+                'p_value': float(row.get('p_value', 1) or 1),
+                'fdr_significant': row.get('fdr_significant', 'False') == 'True',
+            })
+
+    return jsonify({'results': rows, 'n': len(rows)})
+
+
 @app.route('/api/quote/<symbol>')
 def api_quote(symbol):
     """Live price from Yahoo Finance, cached for 5 minutes."""

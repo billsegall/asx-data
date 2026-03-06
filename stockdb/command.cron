@@ -24,6 +24,9 @@ STOCKDB=/home/bill/code/asx-data/stockdb
 # Daily EOD from Yahoo Finance — weekdays at 18:30
 30 18 * * 1-5 python3 $STOCKDB/fetch_eod_daily.py --db $STOCKDB/stockdb.db >> $STOCKDB/logs/eod_daily.log 2>&1
 
+# Analysis predictions — weekdays at 20:00 (after EOD fetch completes)
+# 0 20 * * 1-5 cd /home/bill/code/asx-data && python3 -m analysis.cli.run_predictions --db stockdb/stockdb.db >> analysis/logs/predictions.log 2>&1
+
 # Today's ASX announcements — fetched throughout the trading day (AEST)
 1 8 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
 2 9 * * 1-5 python3 /home/bill/src/asx-announcements/asx_scraper.py --today >> /home/bill/src/asx-announcements/logs/today.log 2>&1
