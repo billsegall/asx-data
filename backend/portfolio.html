@@ -365,8 +365,10 @@ async function load() {
   DATA = await resp.json();
 
   const d = new Date(DATA.generated_at * 1000);
+  const minShort = DATA.min_short_pct != null ? ` · ≥${DATA.min_short_pct}% short at entry` : '';
+  const eligible = DATA.eligible_symbols != null ? ` (${DATA.eligible_symbols} eligible symbols)` : '';
   document.getElementById('subtitle').textContent =
-    `Entry: ${DATA.entry_date} · $${DATA.investment_per_stock.toLocaleString()} per stock · Top ${DATA.top_n} per signal · Generated ${d.toLocaleString('en-AU')}`;
+    `Entry: ${DATA.entry_date} · $${DATA.investment_per_stock.toLocaleString()} per stock · Top ${DATA.top_n} per signal${minShort}${eligible} · Generated ${d.toLocaleString('en-AU')}`;
 
   showTab('combined');
 }

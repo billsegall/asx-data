@@ -28,6 +28,7 @@ from analysis.signals import ShortTrendSignal, ShortSqueezeSignal, VolumeAnomaly
 
 INVESTMENT_PER_STOCK = 1000.0
 TOP_N = 10
+MIN_SHORT_PCT = 0.5   # minimum short% at entry date to be eligible
 
 SIGNALS = [
     ShortTrendSignal(),
@@ -36,19 +37,36 @@ SIGNALS = [
 ]
 
 
-def compute_top10(signal, fm_train):
-    """Return top-N symbols by signal score on the last training date."""
+def get_eligible_symbols(fm_train):
+    """Return set of symbols with short% >= MIN_SHORT_PCT at the last training date."""
+    features = fm_train.build()
+    short_pct = features['short_pct']   # (N_sym, N_dates)
+    symbols = fm_train.symbols
+
+    # Use last non-NaN short reading per symbol (may lag the last price date)
+    short_np = short_pct.cpu().numpy()
+    eligible = set()
+    for i, sym in enumerate(symbols):
+        row = short_np[i]
+        valid = row[~np.isnan(row)]
+        if len(valid) > 0 and valid[-1] >= MIN_SHORT_PCT:
+            eligible.add(sym)
+    return eligible
+
+
+def compute_top10(signal, fm_train, eligible):
+    """Return top-N symbols by signal score on the last training date, restricted to eligible set."""
     features = fm_train.build()
     mask = fm_train.mask
     sig = signal.compute(features, mask)   # (N_sym, N_dates)
 
-    # Use the last date that has signal data
     N, T = sig.shape
     scores_last = sig[:, -1].cpu().numpy()
     symbols = fm_train.symbols
 
     ranked = sorted(
-        [(symbols[i], float(scores_last[i])) for i in range(N) if not np.isnan(scores_last[i])],
+        [(symbols[i], float(scores_last[i])) for i in range(N)
+         if not np.isnan(scores_last[i]) and symbols[i] in eligible],
         key=lambda x: x[1], reverse=True
     )
     return ranked[:TOP_N]
@@ -147,6 +165,9 @@ def main():
     fm_train = FeatureMatrix(train_eod, train_shorts, split='train', cache_dir='analysis/cache')
     fm_train.build()  # warm cache
 
+    eligible = get_eligible_symbols(fm_train)
+    print(f"[portfolio_backtest] Eligible symbols (short% >= {MIN_SHORT_PCT}%): {len(eligible)}")
+
     entry_ts = int(fm_train.dates[-1])
     entry_date_str = pd.Timestamp(entry_ts, unit='s').strftime('%Y-%m-%d')
     print(f"[portfolio_backtest] Entry date (last training day): {entry_date_str}")
@@ -169,12 +190,14 @@ def main():
         'entry_date': entry_date_str,
         'investment_per_stock': INVESTMENT_PER_STOCK,
         'top_n': TOP_N,
+        'min_short_pct': MIN_SHORT_PCT,
+        'eligible_symbols': len(eligible),
         'signals': {},
     }
 
     for signal in SIGNALS:
         print(f"\n[portfolio_backtest] Signal: {signal.name}")
-        top10 = compute_top10(signal, fm_train)
+        top10 = compute_top10(signal, fm_train, eligible)
         print(f"  Top {TOP_N}: {[s for s, _ in top10]}")
 
         series = build_portfolio_series(top10, bt_eod, sym_meta)
