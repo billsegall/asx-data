@@ -83,8 +83,9 @@ Computed live: `shares × latest close from endofday`. No stale snapshot.
 
 ## Analysis Framework (`analysis/`)
 
-GPU-accelerated signal research pipeline. Runs locally (RTX 4070, CUDA 12.1, PyTorch 2.4).
-DB lives on harri; results are rsynced back for the API to serve.
+GPU-accelerated signal research pipeline. Runs on **realiti-wsl** (RTX 4070, CUDA 12.1, PyTorch 2.4).
+Primary development is on **harri** (`/home/bill/code/asx/asx-data`).
+DB lives on harri; analysis results are rsynced back for the API to serve.
 
 ### Workflow
 ```bash
