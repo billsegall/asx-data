@@ -159,6 +159,16 @@ def main():
         )
 
     db.commit()
+
+    # Refresh current flags: mark symbols with no EOD data in the past year as old
+    one_year_ago = time.time() - 365 * 24 * 3600
+    c.execute('UPDATE symbols SET current = 1')
+    c.execute('''UPDATE symbols SET current = 0
+                 WHERE symbol NOT IN (
+                     SELECT DISTINCT symbol FROM endofday WHERE date > ?
+                 )''', (one_year_ago,))
+    db.commit()
+
     db.close()
 
     print(f"\nDone: {len(rows_to_insert)} rows inserted for {start_dt} → {today}")

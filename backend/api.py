@@ -22,6 +22,26 @@ DATABASE = os.environ.get('DATABASE', '../stockdb/stockdb.db')
 stocks = stockdb.StockDB(DATABASE, False)
 
 
+def _migrate_and_refresh_currency():
+    """Add current column if missing, then mark symbols with no EOD in the past year as old."""
+    c = stocks.cursor()
+    try:
+        c.execute('ALTER TABLE symbols ADD COLUMN current INTEGER NOT NULL DEFAULT 1')
+        stocks.commit()
+    except Exception:
+        pass  # column already exists
+    one_year_ago = time.time() - 365 * 24 * 3600
+    c.execute('UPDATE symbols SET current = 1')
+    c.execute('''UPDATE symbols SET current = 0
+                 WHERE symbol NOT IN (
+                     SELECT DISTINCT symbol FROM endofday WHERE date > ?
+                 )''', (one_year_ago,))
+    stocks.commit()
+
+
+_migrate_and_refresh_currency()
+
+
 ## Utility
 
 def millify(n):
@@ -244,21 +264,35 @@ def api_stock(symbol):
     })
 
 
+@app.route('/api/symbols/all')
+def api_symbols_all():
+    """Return ASX symbols. Defaults to current only; pass ?all=1 to include delisted."""
+    include_all = request.args.get('all', '0') == '1'
+    c = stocks.cursor()
+    if include_all:
+        c.execute('SELECT symbol, name, current FROM symbols ORDER BY symbol')
+    else:
+        c.execute('SELECT symbol, name, current FROM symbols WHERE current = 1 ORDER BY symbol')
+    return jsonify([{'symbol': r[0], 'name': r[1], 'current': bool(r[2])} for r in c.fetchall()])
+
+
 @app.route('/api/symbols')
 def api_symbols():
     q = request.args.get('q', '').strip()
     if not q:
         return jsonify([])
+    include_all = request.args.get('all', '0') == '1'
     c = stocks.cursor()
     pattern = q.upper() + '%'
     like    = '%' + q.upper() + '%'
-    c.execute('''
-        SELECT symbol, name FROM symbols
-        WHERE symbol LIKE ? OR upper(name) LIKE ?
+    currency_filter = '' if include_all else 'AND current = 1'
+    c.execute(f'''
+        SELECT symbol, name, current FROM symbols
+        WHERE (symbol LIKE ? OR upper(name) LIKE ?) {currency_filter}
         ORDER BY CASE WHEN symbol LIKE ? THEN 0 ELSE 1 END, symbol
         LIMIT 10
     ''', (pattern, like, pattern))
-    return jsonify([{'symbol': r[0], 'name': r[1]} for r in c.fetchall()])
+    return jsonify([{'symbol': r[0], 'name': r[1], 'current': bool(r[2])} for r in c.fetchall()])
 
 
 @app.route('/api/shorts')
