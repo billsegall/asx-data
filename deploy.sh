@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd /home/bill/code/asx/asx-data
+cd "$HOME/code/asx/asx-data"
 git fetch origin
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/master)
