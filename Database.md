@@ -73,7 +73,7 @@ Conceptually belongs to the frontend; will migrate to `userdata/users.db` as par
 | `pw_hash` | `TEXT` | NULL for first-login users (triggers `/set-password` flow) |
 | `enabled` | `INTEGER NOT NULL DEFAULT 1` | 0 = account disabled |
 
-`admin@segall.net` is seeded on startup, always enabled, non-deletable.
+The admin user (configured via `ADMIN_EMAIL` env var) is seeded on startup, always enabled, non-deletable.
 
 ### `list_groups`
 | Column | Type | Notes |
@@ -130,7 +130,7 @@ Multiple rows per symbol allowed (different tranches at different prices).
 
 ## 3. `asx-announcements/announcements.db` — ASX announcements
 
-Managed by the `asx-announcements` submodule (private repo). Lives on `harri.tailb1cff.ts.net`.
+Managed by the `asx-announcements` repo (private). Accessed via the announcements server.
 The main web app proxies announcement requests to the announcements server via HTTP.
 
 ### `announcements`

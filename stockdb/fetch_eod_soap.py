@@ -5,7 +5,7 @@ Appends new trading days to asx-eod-data/eod.csv and asx-eod-data/eom.csv,
 starting from the day after the last date already in eod.csv.
 
 Credentials are read from stockdb/.env:
-    EODDATA_USER=bill@segall.net
+    EODDATA_USER=your@email.com
     EODDATA_PASS=yourpassword
 
 Usage:

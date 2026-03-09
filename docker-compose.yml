@@ -16,7 +16,7 @@ services:
       - ./userdata:/userdata
     environment:
       - BACKEND_URL=http://backend:8082
-      - ANNOUNCEMENTS_URL=${ANNOUNCEMENTS_URL:-https://harri.tailb1cff.ts.net:8081}
+      - ANNOUNCEMENTS_URL=${ANNOUNCEMENTS_URL:-https://localhost:8081}
       - USERS_DB=/userdata/users.db
       - SECRET_KEY=${SECRET_KEY}
     depends_on:

@@ -1,11 +1,11 @@
 #! /usr/bin/env python3
 # Stock data REST API — backend service for asx-data. Deploy via deploy.sh.
-# Runs on harri alongside asx-announcements. No user auth; internal on Tailscale.
+# No user auth — internal network only.
 # Frontend calls this instead of importing stockdb directly.
 
 import bisect, datetime, json, math, os, sqlite3, time
 import yfinance as yf
-from flask import Flask, jsonify, request, abort, send_file, make_response
+from flask import Flask, jsonify, request, abort, make_response, Response
 
 # stockdb is on PYTHONPATH (../stockdb when running locally, /stockdb in Docker)
 import stockdb
@@ -17,7 +17,8 @@ def add_cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     return response
 
-DATABASE = os.environ.get('DATABASE', '../stockdb/stockdb.db')
+DATABASE     = os.environ.get('DATABASE', '../stockdb/stockdb.db')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', '')
 
 stocks = stockdb.StockDB(DATABASE, False)
 
@@ -339,13 +340,23 @@ def api_symbol_info(symbol):
     return jsonify({'name': name, 'industry': industry, 'mcap': millify(mcap) if mcap else None})
 
 
+def _serve_html(filename):
+    """Serve an HTML file, injecting FRONTEND_URL as a JS global."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    with open(path) as f:
+        content = f.read()
+    inject = f'<script>window.FRONTEND_URL = {json.dumps(FRONTEND_URL)};</script>\n'
+    content = content.replace('</head>', inject + '</head>', 1)
+    return Response(content, mimetype='text/html')
+
+
 @app.route('/signals')
 def signals_page():
-    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'signals.html'))
+    return _serve_html('signals.html')
 
 @app.route('/portfolio')
 def portfolio_page():
-    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'portfolio.html'))
+    return _serve_html('portfolio.html')
 
 @app.route('/api/analysis/portfolio')
 def api_analysis_portfolio():
@@ -469,7 +480,53 @@ def api_analysis_discovery():
 
 @app.route('/discovery')
 def discovery_page():
-    return send_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'discovery.html'))
+    return _serve_html('discovery.html')
+
+
+@app.route('/symbol-changes')
+def api_symbol_changes():
+    """Look up rename for a symbol. ?symbol=EMS → {found, new_symbol?, effective_date?}"""
+    symbol = request.args.get('symbol', '').strip().upper()
+    if not symbol:
+        abort(400)
+    c = stocks.cursor()
+    try:
+        row = c.execute(
+            'SELECT new_symbol, effective_date FROM symbol_changes'
+            ' WHERE old_symbol = ? ORDER BY effective_date DESC LIMIT 1',
+            (symbol,)
+        ).fetchone()
+    except Exception:
+        return jsonify({'found': False})
+    if row:
+        return jsonify({'found': True, 'symbol': symbol,
+                        'new_symbol': row[0], 'effective_date': row[1]})
+    return jsonify({'found': False})
+
+
+@app.route('/options')
+def api_options():
+    """Options for a symbol. ?symbol=BHP → [{option_symbol, expiry, exercise, ...}, ...]"""
+    symbol = request.args.get('symbol', '').strip().upper()
+    c = stocks.cursor()
+    try:
+        if symbol:
+            rows = c.execute(
+                'SELECT option_symbol, expiry, exercise, share_symbol, share_name, note, fetched_at'
+                ' FROM asx_options WHERE share_symbol = ? ORDER BY expiry, exercise',
+                (symbol,)
+            ).fetchall()
+        else:
+            rows = c.execute(
+                'SELECT option_symbol, expiry, exercise, share_symbol, share_name, note, fetched_at'
+                ' FROM asx_options ORDER BY share_symbol, expiry, exercise'
+            ).fetchall()
+    except Exception:
+        return jsonify([])
+    return jsonify([{
+        'option_symbol': r[0], 'expiry': r[1], 'exercise': r[2],
+        'share_symbol': r[3], 'share_name': r[4], 'note': r[5], 'fetched_at': r[6],
+    } for r in rows])
 
 
 @app.route('/api/quote/<symbol>')

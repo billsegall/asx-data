@@ -108,7 +108,7 @@ function renderTable(results, color) {
     const tdClass = 'px-3 py-2 text-sm';
     return `<tr class="${rowClass} hover:bg-gray-800 transition">
       <td class="${tdClass} text-gray-500 w-8">${rank}</td>
-      <td class="${tdClass}"><a href="http://harri.tailb1cff.ts.net:5000/stock/${r.symbol}" target="_blank"
+      <td class="${tdClass}"><a href="${window.FRONTEND_URL}/stock/${r.symbol}" target="_blank"
           class="font-mono font-semibold text-white hover:text-indigo-300">${r.symbol}</a></td>
       <td class="${tdClass} text-gray-300 max-w-xs truncate">${r.name || '—'}</td>
       <td class="${tdClass} text-gray-400 text-xs">${r.industry || '—'}</td>

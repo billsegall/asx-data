@@ -5,7 +5,7 @@ Downloads the current and previous year zips into asx-eod-data/zips/,
 skipping any file that hasn't changed since the last download.
 
 Credentials are read from stockdb/.env:
-    EODDATA_USER=bill@segall.net
+    EODDATA_USER=your@email.com
     EODDATA_PASS=yourpassword
 
 Usage:

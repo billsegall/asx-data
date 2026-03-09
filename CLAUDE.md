@@ -1,5 +1,7 @@
 # ASX Data (backend)
 
+> **Project-wide guidance**: see `../CLAUDE.md` (parent `asx` repo) for architecture, restart commands, and crontab.
+
 Data ingestion pipeline, stock data REST API, and GPU-accelerated signal analysis for ASX market data.
 The web frontend lives in a separate repo: `github.com/billsegall/asx-web`.
 
@@ -17,7 +19,7 @@ FLASK_APP=api.py PYTHONPATH=../stockdb DATABASE=../stockdb/stockdb.db \
   flask run --host=0.0.0.0 --port=8082
 ```
 
-### On harri (systemd)
+### On server (systemd)
 ```bash
 sudo systemctl start asx-backend    # start
 sudo systemctl status asx-backend   # check
@@ -83,13 +85,12 @@ Computed live: `shares × latest close from endofday`. No stale snapshot.
 
 ## Analysis Framework (`analysis/`)
 
-GPU-accelerated signal research pipeline. Runs on **realiti-wsl** (RTX 4070, CUDA 12.1, PyTorch 2.4).
-Primary development is on **harri** (`/home/bill/code/asx/asx-data`).
-DB lives on harri; analysis results are rsynced back for the API to serve.
+GPU-accelerated signal research pipeline. Runs on a local GPU machine; results rsynced to the server for the API to serve.
 
 ### Workflow
 ```bash
-./analysis/sync.sh              # pull DB from harri → run predictions → push results (~2.5 min)
+# Set ASX_SERVER=user@your-server in .env first
+./analysis/sync.sh              # pull DB from server → run predictions → push results (~2.5 min)
 ./analysis/sync.sh --skip-pull  # skip DB download (use cached local DB)
 ```
 
@@ -125,6 +126,6 @@ python -m analysis.cli.run_portfolio_backtest --db stockdb/stockdb.db  # portfol
 - Duplicate (date, symbol) rows exist in EOD data — dropped at pivot time (~8M rows)
 - `rolling_slope` is a Python loop: ~37s for full matrix; acceptable for batch use
 
-### Cron (harri) — predictions refresh
-- Commented entry in `stockdb/command.cron`: weekdays at 20:00 UTC after EOD fetch
+### Cron — predictions refresh
+- Commented entry in `asx/crontab`: weekdays at 20:00 UTC after EOD fetch
 - Enable by uncommenting and running `./analysis/sync.sh` from local machine instead
