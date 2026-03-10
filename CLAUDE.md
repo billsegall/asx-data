@@ -72,13 +72,15 @@ make             # full rebuild of stockdb.db from all source data (slow, needed
 - **Shares outstanding**: derived at build time from `symbols/ASXListedCompanies-YYYYMMDD.csv` using `shares = mcap / last_trade_price`
 - **Shorts**: `fetch_shorts.py` → `shorts/YYYY.csv` (ASIC public CSVs, 2010–present)
 - **Prices**: purchased from eoddata.com; zip files in `asx-eod-data/zips/` (private submodule)
+- **Splits/consolidations**: `fetch_splits.py` → Yahoo Finance (run periodically; re-downloads adjusted history on new event)
 
 ### Database schema
 See `Database.md` for full schema. Summary:
-- `symbols(symbol PK, name, industry, shares)` — shares outstanding
+- `symbols(symbol PK, name, industry, shares, current)` — `current=0` for delisted/renamed
 - `shorts(symbol, date, short%)` — daily short positions 2010–present
 - `endofday(symbol, date, open, high, low, close, volume)` — daily OHLCV
 - `endofmonth(symbol, date, close)` — last trading day of each month
+- `corporate_events(symbol, date PK, event_type, ratio, description)` — splits/consolidations
 
 ### Market cap
 Computed live: `shares × latest close from endofday`. No stale snapshot.

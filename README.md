@@ -1,5 +1,7 @@
 # asx-data
-ASX data and processing
+ASX data pipeline and stock data REST API.
+
+The web frontend lives in a separate repo: [asx-web](https://github.com/billsegall/asx-web).
 
 ## ASX short data
 
@@ -28,14 +30,22 @@ snapshot in `stockdb/symbols/ASXListedCompanies-YYYYMMDD.csv` using
 `shares = mcap / last_trade_price`. Market cap is then computed live at query
 time as `shares × latest close price`, so it stays current as price data is refreshed.
 
+## Stock splits and consolidations
+
+Split/consolidation events are fetched from Yahoo Finance via `stockdb/fetch_splits.py`.
+When a new event is detected, the full adjusted OHLCV history for that symbol is
+re-downloaded so pre-split prices are correctly adjusted in `endofday`.
+
 ## The database
 
-The database consists of three tables described below by example:
+See `Database.md` for the full schema. Summary of tables:
 
 ### symbols
-symbol | name | industry | shares
------- | ---- | --- | ------
-BHP    | BHP GROUP LIMITED | Materials | 5,102,905,054
+symbol | name | industry | shares | current
+------ | ---- | -------- | ------ | -------
+BHP    | BHP GROUP LIMITED | Materials | 5,102,905,054 | 1
+
+`current = 0` for delisted or renamed symbols.
 
 ### shorts
 symbol | date | short
@@ -52,24 +62,9 @@ symbol | date | close
 ------ | ---- | -----
 BHP    | 1769522400 | 50.60
 
-# Web application
+Last trading day of each calendar month — used for efficient multi-period return calculations.
 
-A Flask web app in `www/` visualises the data with a dark theme (Tailwind CSS)
-and interactive charts (Plotly.js).
-
-## Running
-
-```bash
-cd www && ./asx        # local
-docker compose up      # Docker (mounts DB as read-only volume)
-```
-
-## Features
-
-- **Stock page** (`/stock/<symbol>`) — interactive candlestick/line chart with
-  XAO overlay, short interest on a secondary axis, volume subplot, and range
-  selector buttons (1M / 3M / 6M / 1Y / 3Y / 5Y / 10Y / All). Defaults to a
-  1Y viewport. Supports normalised comparison with a second symbol via the
-  "vs." input.
-- **Shorts** (`/shorts`) — latest short positions, sortable, filterable by symbol or company name
-- **Market cap** — computed live from shares outstanding × latest close price
+### corporate_events
+symbol | date | event_type | ratio | description
+------ | ---- | ---------- | ----- | -----------
+BTR    | 1704067200 | consolidation | 0.1 | 1:10 Consolidation
