@@ -109,7 +109,7 @@ def main():
     if args.symbols:
         symbols = [s.upper() for s in args.symbols]
     else:
-        symbols = [r[0] for r in c.execute('SELECT symbol FROM symbols').fetchall()]
+        symbols = [r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1').fetchall()]
 
     print(f"Checking {len(symbols)} symbols for split events...")
 
