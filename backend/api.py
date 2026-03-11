@@ -119,6 +119,20 @@ def _enrich_batch(symbols):
         if ref:
             result[sym]['change_1w_pct'] = round((price - ref) / ref * 100, 2)
 
+    # Fallback for symbols outside the 30-day window (e.g. low-liquidity options)
+    no_price = [s for s in stale if 'price' not in result[s]]
+    if no_price:
+        ph2 = ','.join('?' * len(no_price))
+        c.execute(f'''
+            SELECT e.symbol, e.date, e.close, e.volume FROM endofday e
+            INNER JOIN (SELECT symbol, MAX(date) AS max_date FROM endofday
+                        WHERE symbol IN ({ph2}) GROUP BY symbol) m
+            ON e.symbol = m.symbol AND e.date = m.max_date
+        ''', no_price)
+        for row in c.fetchall():
+            result[row[0]]['price']  = row[2]
+            result[row[0]]['volume'] = row[3]
+
     # Query 2: monthly closes for period returns (1m, 3m, 6m, 1y, 3y, 5y)
     lookbacks = {
         'change_1m_pct': now - datetime.timedelta(days=31),
