@@ -559,7 +559,34 @@ def api_quotes():
         else:
             stale.append(sym)
 
+    def _is_option(sym):
+        """ASX options have 'O' as their fourth character (e.g. GNMO, EXROB)."""
+        return len(sym) >= 4 and sym[3] == 'O'
+
+    def _fetch_asx(sym):
+        """Fetch latest price from ASX chart API."""
+        url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={sym}&complete=true'
+        resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        rows = resp.json()
+        if not (rows and isinstance(rows, list) and len(rows) >= 1):
+            return None
+        price = float(rows[-1][4])
+        prev  = float(rows[-2][4]) if len(rows) >= 2 else None
+        return {
+            'price':      round(price, 4),
+            'prev_close': round(prev, 4) if prev else None,
+            'change':     round(price - prev, 4) if prev else None,
+            'change_pct': round((price - prev) / prev * 100, 2) if prev else None,
+            'source':     'asx',
+        }
+
     def fetch_one(sym):
+        if _is_option(sym):
+            try:
+                return sym, _fetch_asx(sym)
+            except Exception:
+                return sym, None
+        # Non-options: use Yahoo Finance
         yf_ticker = '^AORD' if sym == 'XAO' else f'{sym}.AX'
         try:
             fi = yf.Ticker(yf_ticker).fast_info
@@ -571,23 +598,6 @@ def api_quotes():
                     'prev_close': round(float(prev), 3) if prev else None,
                     'change':     round(float(price - prev), 3) if prev else None,
                     'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
-                }
-        except Exception:
-            pass
-        # Fallback: ASX chart API (covers options/warrants not on Yahoo Finance)
-        try:
-            url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={sym}&complete=true'
-            resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-            rows = resp.json()
-            if rows and isinstance(rows, list) and len(rows) >= 1:
-                price = float(rows[-1][4])
-                prev  = float(rows[-2][4]) if len(rows) >= 2 else None
-                return sym, {
-                    'price':      round(price, 4),
-                    'prev_close': round(prev, 4) if prev else None,
-                    'change':     round(price - prev, 4) if prev else None,
-                    'change_pct': round((price - prev) / prev * 100, 2) if prev else None,
-                    'source':     'asx',
                 }
         except Exception:
             pass
