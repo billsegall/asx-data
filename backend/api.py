@@ -5,6 +5,7 @@
 
 import bisect, datetime, json, math, os, sqlite3, time
 from concurrent.futures import ThreadPoolExecutor
+import requests
 import yfinance as yf
 from flask import Flask, jsonify, request, abort, make_response, Response
 
@@ -570,6 +571,23 @@ def api_quotes():
                     'prev_close': round(float(prev), 3) if prev else None,
                     'change':     round(float(price - prev), 3) if prev else None,
                     'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
+                }
+        except Exception:
+            pass
+        # Fallback: ASX chart API (covers options/warrants not on Yahoo Finance)
+        try:
+            url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={sym}&complete=true'
+            resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            rows = resp.json()
+            if rows and isinstance(rows, list) and len(rows) >= 1:
+                price = float(rows[-1][4])
+                prev  = float(rows[-2][4]) if len(rows) >= 2 else None
+                return sym, {
+                    'price':      round(price, 4),
+                    'prev_close': round(prev, 4) if prev else None,
+                    'change':     round(price - prev, 4) if prev else None,
+                    'change_pct': round((price - prev) / prev * 100, 2) if prev else None,
+                    'source':     'asx',
                 }
         except Exception:
             pass
