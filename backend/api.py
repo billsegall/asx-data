@@ -4,6 +4,7 @@
 # Frontend calls this instead of importing stockdb directly.
 
 import bisect, datetime, json, math, os, sqlite3, time
+from concurrent.futures import ThreadPoolExecutor
 import yfinance as yf
 from flask import Flask, jsonify, request, abort, make_response, Response
 
@@ -527,6 +528,47 @@ def api_options():
         'option_symbol': r[0], 'expiry': r[1], 'exercise': r[2],
         'share_symbol': r[3], 'share_name': r[4], 'note': r[5], 'fetched_at': r[6],
     } for r in rows])
+
+
+@app.route('/api/quotes', methods=['POST'])
+def api_quotes():
+    """Batch live prices from Yahoo Finance, each cached for 5 minutes."""
+    symbols = [s.strip().upper() for s in (request.get_json(force=True) or {}).get('symbols', [])[:60]]
+    now_ts = time.time()
+    result = {}
+    stale = []
+    for sym in symbols:
+        entry = _quote_cache.get(sym)
+        if entry and now_ts - entry[0] < _QUOTE_TTL:
+            result[sym] = entry[1]
+        else:
+            stale.append(sym)
+
+    def fetch_one(sym):
+        yf_ticker = '^AORD' if sym == 'XAO' else f'{sym}.AX'
+        try:
+            fi = yf.Ticker(yf_ticker).fast_info
+            price = fi.last_price
+            prev  = fi.previous_close
+            if price:
+                return sym, {
+                    'price':      round(float(price), 3),
+                    'prev_close': round(float(prev), 3) if prev else None,
+                    'change':     round(float(price - prev), 3) if prev else None,
+                    'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
+                }
+        except Exception:
+            pass
+        return sym, None
+
+    if stale:
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            for sym, data in ex.map(fetch_one, stale):
+                if data:
+                    _quote_cache[sym] = (now_ts, data)
+                    result[sym] = data
+
+    return jsonify(result)
 
 
 @app.route('/api/quote/<symbol>')
