@@ -51,6 +51,7 @@ asx-eod-data/eod.csv asx-eod-data/eom.csv:
 
 $(DB): $(SHORTS_CSV) stockdb.py asx-eod-data/eod.csv asx-eod-data/eom.csv symbols/asx-official.csv
 	stockdb.py --db /tmp/.$(DB)
+	sqlite3 /tmp/.$(DB) "UPDATE symbols SET current = 0 WHERE industry = 'Delisted' AND current = 1"
 	mv /tmp/.$(DB) $@
 
 clean:
