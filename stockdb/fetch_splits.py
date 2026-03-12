@@ -106,7 +106,9 @@ def main():
     )''')
     db.commit()
 
-    current = {r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1').fetchall()}
+    current = {r[0] for r in c.execute(
+        "SELECT symbol FROM symbols WHERE current = 1 AND industry != 'Delisted'"
+    ).fetchall()}
     if args.symbols:
         symbols = [s.upper() for s in args.symbols if s.upper() in current]
     else:
