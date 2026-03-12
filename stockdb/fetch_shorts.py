@@ -69,8 +69,10 @@ def main():
         outfile = os.path.join(SHORTS_DIR, f'{year}.csv')
         exists  = os.path.exists(outfile)
 
-        # Always refresh current and previous year; skip older complete files
-        needs_download = force or (year >= current_year - 1) or not exists
+        # Always refresh current year; refresh previous year only in January (still being backfilled);
+        # skip older complete files unless forced or missing
+        in_january = datetime.now().month == 1
+        needs_download = force or not exists or year == current_year or (year == current_year - 1 and in_january)
 
         if not needs_download:
             skipped.append(year_str)
