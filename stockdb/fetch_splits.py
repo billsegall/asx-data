@@ -106,10 +106,11 @@ def main():
     )''')
     db.commit()
 
+    current = {r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1').fetchall()}
     if args.symbols:
-        symbols = [s.upper() for s in args.symbols]
+        symbols = [s.upper() for s in args.symbols if s.upper() in current]
     else:
-        symbols = [r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1').fetchall()]
+        symbols = sorted(current)
 
     print(f"Checking {len(symbols)} symbols for split events...")
 
