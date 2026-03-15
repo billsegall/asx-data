@@ -10,7 +10,7 @@ class StockDB:
 
     def __init__(self, dbfile, check_same_thread):
         self.dbfile = dbfile
-        self.db = sqlite3.connect(self.dbfile, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=check_same_thread)
+        self.db = sqlite3.connect(self.dbfile, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=check_same_thread, timeout=30)
 
     def __del__(self):
         self.db.close()
