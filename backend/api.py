@@ -669,8 +669,10 @@ def api_analysis_correlations_db():
         clauses.append('(train_r >= ? OR train_r <= ?)'); params.extend([min_r, -min_r])
     if min_stable > 0:
         clauses.append('n_stable >= ?'); params.append(min_stable)
-    if direction in ('positive', 'negative'):
-        clauses.append('direction = ?'); params.append(direction)
+    if direction == 'positive':
+        clauses.append('train_r > 0 AND (backtest_r > 0 OR backtest_r IS NULL)')
+    elif direction == 'negative':
+        clauses.append('train_r < 0 AND (backtest_r < 0 OR backtest_r IS NULL)')
 
     where_sql = ' AND '.join(clauses)
     if sort_col == 'train_r':
