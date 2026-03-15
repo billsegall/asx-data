@@ -625,7 +625,7 @@ def api_analysis_correlations_db():
       leader     — exact match (uppercased)
       follower   — exact match (uppercased)
       min_r      — minimum |train_r| (default 0)
-      stable     — '1' to filter stable=1 only
+      min_stable — minimum n_stable (0–5, default 0)
       lag_min    — minimum lag_days (default 1)
       lag_max    — maximum lag_days (default 20)
       direction  — 'positive' | 'negative' | '' (both)
@@ -640,7 +640,7 @@ def api_analysis_correlations_db():
     leader    = request.args.get('leader', '').strip().upper()
     follower  = request.args.get('follower', '').strip().upper()
     min_r     = abs(float(request.args.get('min_r', 0) or 0))
-    stable    = request.args.get('stable', '0') == '1'
+    min_stable = max(0, min(5, int(request.args.get('min_stable', 0) or 0)))
     lag_min   = max(1,   int(request.args.get('lag_min', 1)  or 1))
     lag_max   = min(100, int(request.args.get('lag_max', 20) or 20))
     direction = request.args.get('direction', '').strip().lower()
@@ -667,8 +667,8 @@ def api_analysis_correlations_db():
     if min_r > 0:
         # Avoid ABS() so idx_corr_ind_r composite index can be used
         clauses.append('(train_r >= ? OR train_r <= ?)'); params.extend([min_r, -min_r])
-    if stable:
-        clauses.append('n_stable = 5')
+    if min_stable > 0:
+        clauses.append('n_stable >= ?'); params.append(min_stable)
     if direction in ('positive', 'negative'):
         clauses.append('direction = ?'); params.append(direction)
 
