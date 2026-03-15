@@ -147,7 +147,7 @@ def _stability_check(pivot: pd.DataFrame,
 
         # FDR per sub-period (exclude self-pairs)
         diag = np.eye(N, dtype=bool)
-        valid = ~diag[:, :, np.newaxis]  # broadcast to (N, N, max_lag)
+        valid = np.repeat(~diag[:, :, np.newaxis], max_lag, axis=2)  # (N, N, max_lag)
         p_flat = p[valid]
         _, p_adj_flat = fdr_correct(p_flat, alpha=fdr_alpha)
         p_adj = np.ones_like(p)
@@ -357,7 +357,7 @@ def run_pipeline(
     n_tests = N * (N - 1) * max_lag
     logger.info('Applying FDR correction across %d tests...', n_tests)
     diag_mask = np.eye(N, dtype=bool)
-    valid_mask = ~diag_mask[:, :, np.newaxis]                # (N, N, max_lag)
+    valid_mask = np.repeat(~diag_mask[:, :, np.newaxis], max_lag, axis=2)  # (N, N, max_lag)
     p_flat = p_all[valid_mask]
     _, p_adj_flat = fdr_correct(p_flat, alpha=fdr_alpha)
     p_adj_all = np.ones((N, N, max_lag), dtype=np.float64)
