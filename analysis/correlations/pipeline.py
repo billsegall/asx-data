@@ -29,8 +29,9 @@ from .lead_lag import ccf_pvalues, compute_ccf_gpu
 
 logger = logging.getLogger(__name__)
 
-MIN_LIQUIDITY_VALUE = 500_000   # $500k median daily traded value
-MIN_COVERAGE_FRAC   = 0.90      # ≥90% of training days must have data
+MIN_LIQUIDITY_VALUE  = 500_000   # $500k median daily traded value
+MIN_COVERAGE_FRAC    = 0.90      # ≥90% of training days must have data
+N_STABILITY_PERIODS  = 5         # sub-periods for stability check
 
 
 # ---------------------------------------------------------------------------
@@ -118,26 +119,24 @@ def _stability_check(pivot: pd.DataFrame,
                      min_r: float,
                      fdr_alpha: float,
                      device: str) -> np.ndarray:
-    """Split training pivot into 3 sub-periods; count significant sub-periods.
+    """Split training pivot into N_STABILITY_PERIODS sub-periods; track per-period significance.
 
     Args:
         pivot: (N_sym × N_dates) market-adjusted log-return DataFrame
 
     Returns:
-        (N_sym, N_sym, max_lag) int8 array — values in [0, 3]
+        (N_sym, N_sym, max_lag, N_STABILITY_PERIODS) uint8 array — 1 if significant, 0 if not,
+        ordered from oldest (index 0) to newest (index N_STABILITY_PERIODS-1).
     """
     N = len(pivot)
-    sig_count = np.zeros((N, N, max_lag), dtype=np.int8)
+    sig_periods = np.zeros((N, N, max_lag, N_STABILITY_PERIODS), dtype=np.uint8)
 
     dates = list(pivot.columns)
     n = len(dates)
-    thirds = [
-        dates[:n // 3],
-        dates[n // 3: 2 * n // 3],
-        dates[2 * n // 3:],
-    ]
+    breaks = [n * i // N_STABILITY_PERIODS for i in range(N_STABILITY_PERIODS + 1)]
 
-    for period_dates in thirds:
+    for p_idx in range(N_STABILITY_PERIODS):
+        period_dates = dates[breaks[p_idx]:breaks[p_idx + 1]]
         sub_pivot = pivot[period_dates]
         ret_t = _to_tensor(sub_pivot, device)
         T_sub = ret_t.shape[1]
@@ -154,9 +153,9 @@ def _stability_check(pivot: pd.DataFrame,
         p_adj[valid] = p_adj_flat
 
         sig = (np.abs(r) >= min_r) & (p_adj <= fdr_alpha)
-        sig_count += sig.astype(np.int8)
+        sig_periods[:, :, :, p_idx] = sig.astype(np.uint8)
 
-    return sig_count
+    return sig_periods
 
 
 # ---------------------------------------------------------------------------
@@ -174,15 +173,16 @@ CREATE TABLE IF NOT EXISTS correlations (
     train_r         REAL    NOT NULL,
     backtest_r      REAL,
     fdr_p           REAL    NOT NULL,
-    stable          INTEGER NOT NULL,
+    stability       TEXT    NOT NULL,
     n_stable        INTEGER NOT NULL,
+    recency_score   INTEGER NOT NULL,
     market_adjusted INTEGER NOT NULL,
     run_at          INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_corr_industry ON correlations (industry);
 CREATE INDEX IF NOT EXISTS idx_corr_leader   ON correlations (leader);
 CREATE INDEX IF NOT EXISTS idx_corr_follower ON correlations (follower);
-CREATE INDEX IF NOT EXISTS idx_corr_stable   ON correlations (stable);
+CREATE INDEX IF NOT EXISTS idx_corr_n_stable ON correlations (n_stable, recency_score);
 CREATE INDEX IF NOT EXISTS idx_corr_train_r  ON correlations (train_r);
 CREATE INDEX IF NOT EXISTS idx_corr_lag      ON correlations (lag_days);
 CREATE INDEX IF NOT EXISTS idx_corr_ind_r    ON correlations (industry, train_r);
@@ -206,9 +206,21 @@ CREATE TABLE IF NOT EXISTS correlation_runs (
 
 
 def init_correlations_db(corr_db_path: str) -> None:
-    """Create correlations.db schema if it does not exist (idempotent)."""
+    """Create correlations.db schema if it does not exist.
+
+    Migrates automatically if the DB has the old schema (stable/n_stable columns
+    instead of stability/n_stable/recency_score).
+    """
     conn = sqlite3.connect(corr_db_path)
     conn.execute('PRAGMA journal_mode=WAL')
+    # Detect old schema: lacks 'stability' column
+    try:
+        conn.execute('SELECT stability FROM correlations LIMIT 0')
+    except sqlite3.OperationalError:
+        logger.info('Migrating correlations.db to new stability schema...')
+        conn.execute('DROP TABLE IF EXISTS correlations')
+        conn.execute('DROP TABLE IF EXISTS correlation_runs')
+        conn.commit()
     for stmt in _CORR_DB_SCHEMA.split(';'):
         s = stmt.strip()
         if s:
@@ -236,8 +248,9 @@ def write_to_db(df: pd.DataFrame, meta: dict,
             float(r['train_r']),
             float(bk) if bk is not None and not pd.isna(bk) else None,
             float(r['fdr_p']),
-            int(bool(r['stable'])),
+            str(r['stability']),
             int(r['n_stable']),
+            int(r['recency_score']),
             int(bool(r.get('market_adjusted', True))),
             run_at,
         ))
@@ -267,9 +280,9 @@ def write_to_db(df: pd.DataFrame, meta: dict,
                 conn.executemany(
                     """INSERT INTO correlations
                        (leader, follower, industry, lag_days, direction,
-                        train_r, backtest_r, fdr_p, stable, n_stable,
+                        train_r, backtest_r, fdr_p, stability, n_stable, recency_score,
                         market_adjusted, run_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     rows,
                 )
             conn.execute(
@@ -321,7 +334,8 @@ def run_pipeline(
         logger.warning('Fewer than 2 symbols after liquidity filter — skipping')
         empty = pd.DataFrame(columns=[
             'leader', 'follower', 'lag_days', 'direction',
-            'train_r', 'backtest_r', 'fdr_p', 'stable', 'n_stable', 'market_adjusted',
+            'train_r', 'backtest_r', 'fdr_p', 'stability', 'n_stable', 'recency_score',
+            'market_adjusted',
         ])
         return empty, {'n_symbols_tested': N, 'n_significant': 0, 'n_stable': 0,
                        'generated_at': int(time.time()), 'elapsed_seconds': 0.0,
@@ -369,8 +383,13 @@ def run_pipeline(
     logger.info('Significant (leader, follower, lag) triplets: %d', n_sig)
 
     # ── 8. Stability check ───────────────────────────────────────────────────
-    logger.info('Running stability check (3 sub-periods)...')
-    stable_count = _stability_check(pivot_train, max_lag, min_r, fdr_alpha, device)
+    logger.info('Running stability check (%d sub-periods)...', N_STABILITY_PERIODS)
+    sig_periods = _stability_check(pivot_train, max_lag, min_r, fdr_alpha, device)
+    # sig_periods: (N, N, max_lag, N_STABILITY_PERIODS)
+    # Recency weights: index 0 = oldest (weight 1), index 4 = newest (weight 16)
+    _weights = np.array([2**p for p in range(N_STABILITY_PERIODS)], dtype=np.int32)
+    recency_scores = (sig_periods * _weights).sum(axis=-1).astype(np.int32)  # (N, N, max_lag)
+    n_stable_arr   = sig_periods.sum(axis=-1).astype(np.int8)                # (N, N, max_lag)
 
     # ── 9. Backtest validation ───────────────────────────────────────────────
     logger.info('Running backtest validation...')
@@ -407,8 +426,9 @@ def run_pipeline(
             'train_r':         round(r_tr, 6),
             'backtest_r':      round(r_bk, 6),
             'fdr_p':           round(float(p_adj_all[i, j, k]), 8),
-            'stable':          bool(stable_count[i, j, k] == 3),
-            'n_stable':        int(stable_count[i, j, k]),
+            'stability':       ''.join(map(str, sig_periods[i, j, k])),
+            'n_stable':        int(n_stable_arr[i, j, k]),
+            'recency_score':   int(recency_scores[i, j, k]),
             'market_adjusted': market_adjust,
         })
 
@@ -416,7 +436,8 @@ def run_pipeline(
     if df_out.empty:
         df_out = pd.DataFrame(columns=[
             'leader', 'follower', 'lag_days', 'direction',
-            'train_r', 'backtest_r', 'fdr_p', 'stable', 'n_stable', 'market_adjusted',
+            'train_r', 'backtest_r', 'fdr_p', 'stability', 'n_stable', 'recency_score',
+            'market_adjusted',
         ])
 
     # ── 11. Optionally save CSV + metadata ───────────────────────────────────
@@ -427,7 +448,7 @@ def run_pipeline(
         'n_symbols_tested': N,
         'n_pairs_tested':   n_tests,
         'n_significant':    n_sig,
-        'n_stable':         int((stable_count == 3).any(axis=2).sum()),
+        'n_stable':         int((n_stable_arr[sig_mask] == N_STABILITY_PERIODS).sum()),
         'train_period':     [train_start, train_end],
         'backtest_period':  [bt_start, bt_end],
         'max_lag':          max_lag,

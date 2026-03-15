@@ -649,7 +649,7 @@ def api_analysis_correlations_db():
     limit     = min(5000, max(1, int(request.args.get('limit', 500) or 500)))
 
     _ALLOWED_SORT = {'leader', 'follower', 'lag_days', 'train_r', 'backtest_r',
-                     'fdr_p', 'stable', 'n_stable', 'industry'}
+                     'fdr_p', 'n_stable', 'recency_score', 'stability', 'industry'}
     if sort_col not in _ALLOWED_SORT:
         sort_col = 'train_r'
     if order_dir not in ('asc', 'desc'):
@@ -668,15 +668,21 @@ def api_analysis_correlations_db():
         # Avoid ABS() so idx_corr_ind_r composite index can be used
         clauses.append('(train_r >= ? OR train_r <= ?)'); params.extend([min_r, -min_r])
     if stable:
-        clauses.append('stable = 1')
+        clauses.append('n_stable = 5')
     if direction in ('positive', 'negative'):
         clauses.append('direction = ?'); params.append(direction)
 
-    where_sql  = ' AND '.join(clauses)
-    order_expr = f'ABS(train_r) {order_dir}' if sort_col == 'train_r' else f'{sort_col} {order_dir}'
+    where_sql = ' AND '.join(clauses)
+    if sort_col == 'train_r':
+        order_expr = f'ABS(train_r) {order_dir}'
+    elif sort_col == 'stability':
+        order_expr = f'n_stable {order_dir}, recency_score {order_dir}'
+    else:
+        order_expr = f'{sort_col} {order_dir}'
     sql = f"""
         SELECT leader, follower, industry, lag_days, direction,
-               train_r, backtest_r, fdr_p, stable, n_stable, market_adjusted, run_at
+               train_r, backtest_r, fdr_p, stability, n_stable, recency_score,
+               market_adjusted, run_at
         FROM correlations
         WHERE {where_sql}
         ORDER BY {order_expr}
@@ -702,8 +708,9 @@ def api_analysis_correlations_db():
             'train_r':         r['train_r'],
             'backtest_r':      r['backtest_r'],
             'fdr_p':           r['fdr_p'],
-            'stable':          bool(r['stable']),
+            'stability':       r['stability'],
             'n_stable':        r['n_stable'],
+            'recency_score':   r['recency_score'],
             'market_adjusted': bool(r['market_adjusted']),
             'run_at':          r['run_at'],
         } for r in rows],
