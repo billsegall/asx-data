@@ -132,9 +132,11 @@ if __name__ == "__main__":
     stockdb = StockDB(args.db, False)
     c = stockdb.cursor()
 
-    # A. Bulk-load PRAGMAs — safe because we build from scratch; if it fails we rebuild
-    c.execute('PRAGMA synchronous=OFF')
-    c.execute('PRAGMA journal_mode=OFF')
+    # A. Bulk-load PRAGMAs — only for full rebuilds; partial updates leave journal_mode alone
+    #    (journal_mode=OFF requires exclusive access; incompatible with live Flask connection)
+    if not partial:
+        c.execute('PRAGMA synchronous=OFF')
+        c.execute('PRAGMA journal_mode=OFF')
     c.execute('PRAGMA cache_size=-65536')   # 64 MB page cache
 
     # C. Date cache — only ~6000 unique trading dates across 6.9M EOD rows
