@@ -37,6 +37,21 @@ echo ""
 echo "==> Running predictions (GPU)..."
 python3 -m analysis.cli.run_predictions --db "$LOCAL_DB" --output-dir "$RESULTS_DIR"
 
+echo ""
+echo "==> Running correlation analysis (GPU)..."
+python3 -m analysis.cli.run_correlations \
+    --db "$LOCAL_DB" \
+    --output-dir "$RESULTS_DIR" \
+    --max-lag 20 --min-r 0.15 --market-adjust
+
+echo ""
+echo "==> Running per-industry correlation analysis (GPU)..."
+python3 -m analysis.cli.run_industry_correlations \
+    --db "$LOCAL_DB" \
+    --output-db "$RESULTS_DIR/correlations.db" \
+    --max-lag 20 --min-r 0.15 --market-adjust \
+    --min-symbols 5
+
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
     echo "==> Pushing results to $HARRI..."

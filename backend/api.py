@@ -499,6 +499,217 @@ def discovery_page():
     return _serve_html('discovery.html')
 
 
+# Correlations cache (loaded once, refreshed when file changes)
+_correlations_cache = {'mtime': 0, 'rows': [], 'meta': {}}
+
+
+def _load_correlations():
+    """Load correlations.csv + meta.json, returning (rows, meta). Cached by mtime."""
+    import csv
+    csv_path  = os.path.join(ANALYSIS_RESULTS_DIR, 'correlations.csv')
+    meta_path = os.path.join(ANALYSIS_RESULTS_DIR, 'correlations_meta.json')
+
+    if not os.path.exists(csv_path):
+        return [], {}
+
+    mtime = os.path.getmtime(csv_path)
+    if _correlations_cache['mtime'] == mtime:
+        return _correlations_cache['rows'], _correlations_cache['meta']
+
+    rows = []
+    with open(csv_path) as f:
+        for row in csv.DictReader(f):
+            rows.append({
+                'leader':          row['leader'],
+                'follower':        row['follower'],
+                'lag_days':        int(row['lag_days']),
+                'direction':       row['direction'],
+                'train_r':         float(row['train_r']),
+                'backtest_r':      float(row['backtest_r']) if row.get('backtest_r') else None,
+                'fdr_p':           float(row['fdr_p']),
+                'stable':          row['stable'].lower() == 'true',
+                'n_stable':        int(row['n_stable']),
+                'market_adjusted': row['market_adjusted'].lower() == 'true',
+            })
+
+    meta = {}
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+
+    _correlations_cache.update({'mtime': mtime, 'rows': rows, 'meta': meta})
+    return rows, meta
+
+
+@app.route('/api/analysis/correlations')
+def api_analysis_correlations():
+    """Lead-lag correlation pairs.
+
+    Query params:
+      leader=BHP   — filter by leading symbol
+      follower=RIO — filter by following symbol
+      min_r=0.20   — minimum |train_r|
+      stable=1     — stable pairs only (significant in all 3 sub-periods)
+      lag=5        — specific lag day
+    """
+    rows, meta = _load_correlations()
+    if not rows and not meta:
+        return jsonify({'error': 'No correlation results available'}), 404
+
+    leader   = request.args.get('leader', '').strip().upper()
+    follower = request.args.get('follower', '').strip().upper()
+    min_r    = float(request.args.get('min_r', 0))
+    stable   = request.args.get('stable', '0') == '1'
+    lag      = request.args.get('lag')
+
+    filtered = rows
+    if leader:
+        filtered = [r for r in filtered if r['leader'] == leader]
+    if follower:
+        filtered = [r for r in filtered if r['follower'] == follower]
+    if min_r > 0:
+        filtered = [r for r in filtered if abs(r['train_r']) >= min_r]
+    if stable:
+        filtered = [r for r in filtered if r['stable']]
+    if lag:
+        try:
+            lag_int = int(lag)
+            filtered = [r for r in filtered if r['lag_days'] == lag_int]
+        except ValueError:
+            pass
+
+    return jsonify({'meta': meta, 'results': filtered})
+
+
+# ---------------------------------------------------------------------------
+# Industry correlations — SQLite-backed (per-industry pipeline results)
+# ---------------------------------------------------------------------------
+
+CORR_DB_PATH = os.path.join(ANALYSIS_RESULTS_DIR, 'correlations.db')
+
+
+def _corr_db_conn():
+    """Open correlations.db read-only. Caller must close."""
+    conn = sqlite3.connect(CORR_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA query_only = ON')
+    return conn
+
+
+@app.route('/api/analysis/correlations/industries')
+def api_analysis_correlations_industries():
+    """List all industries in correlation_runs with run metadata."""
+    if not os.path.exists(CORR_DB_PATH):
+        return jsonify({'error': 'No correlations database available'}), 404
+    try:
+        conn = _corr_db_conn()
+        rows = conn.execute(
+            """SELECT industry, run_at, n_symbols, n_pairs_tested,
+                      n_significant, n_stable, train_start, train_end,
+                      backtest_start, backtest_end, max_lag, min_r, elapsed_seconds
+               FROM correlation_runs
+               ORDER BY industry ASC"""
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/analysis/correlations/db')
+def api_analysis_correlations_db():
+    """Filtered query on the correlations table.
+
+    Query params:
+      industry   — exact match
+      leader     — exact match (uppercased)
+      follower   — exact match (uppercased)
+      min_r      — minimum |train_r| (default 0)
+      stable     — '1' to filter stable=1 only
+      lag_min    — minimum lag_days (default 1)
+      lag_max    — maximum lag_days (default 20)
+      direction  — 'positive' | 'negative' | '' (both)
+      sort       — column name (default 'train_r')
+      order      — 'asc' | 'desc' (default 'desc')
+      limit      — max rows, capped at 5000 (default 500)
+    """
+    if not os.path.exists(CORR_DB_PATH):
+        return jsonify({'error': 'No correlations database available'}), 404
+
+    industry  = request.args.get('industry', '').strip()
+    leader    = request.args.get('leader', '').strip().upper()
+    follower  = request.args.get('follower', '').strip().upper()
+    min_r     = abs(float(request.args.get('min_r', 0) or 0))
+    stable    = request.args.get('stable', '0') == '1'
+    lag_min   = max(1,   int(request.args.get('lag_min', 1)  or 1))
+    lag_max   = min(100, int(request.args.get('lag_max', 20) or 20))
+    direction = request.args.get('direction', '').strip().lower()
+    sort_col  = request.args.get('sort', 'train_r').strip()
+    order_dir = request.args.get('order', 'desc').strip().lower()
+    limit     = min(5000, max(1, int(request.args.get('limit', 500) or 500)))
+
+    _ALLOWED_SORT = {'leader', 'follower', 'lag_days', 'train_r', 'backtest_r',
+                     'fdr_p', 'stable', 'n_stable', 'industry'}
+    if sort_col not in _ALLOWED_SORT:
+        sort_col = 'train_r'
+    if order_dir not in ('asc', 'desc'):
+        order_dir = 'desc'
+
+    clauses = ['lag_days >= ?', 'lag_days <= ?']
+    params  = [lag_min, lag_max]
+
+    if industry:
+        clauses.append('industry = ?');  params.append(industry)
+    if leader:
+        clauses.append('leader = ?');    params.append(leader)
+    if follower:
+        clauses.append('follower = ?');  params.append(follower)
+    if min_r > 0:
+        # Avoid ABS() so idx_corr_ind_r composite index can be used
+        clauses.append('(train_r >= ? OR train_r <= ?)'); params.extend([min_r, -min_r])
+    if stable:
+        clauses.append('stable = 1')
+    if direction in ('positive', 'negative'):
+        clauses.append('direction = ?'); params.append(direction)
+
+    where_sql  = ' AND '.join(clauses)
+    order_expr = f'ABS(train_r) {order_dir}' if sort_col == 'train_r' else f'{sort_col} {order_dir}'
+    sql = f"""
+        SELECT leader, follower, industry, lag_days, direction,
+               train_r, backtest_r, fdr_p, stable, n_stable, market_adjusted, run_at
+        FROM correlations
+        WHERE {where_sql}
+        ORDER BY {order_expr}
+        LIMIT ?
+    """
+    params.append(limit)
+
+    try:
+        conn = _corr_db_conn()
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'n': len(rows),
+        'results': [{
+            'leader':          r['leader'],
+            'follower':        r['follower'],
+            'industry':        r['industry'],
+            'lag_days':        r['lag_days'],
+            'direction':       r['direction'],
+            'train_r':         r['train_r'],
+            'backtest_r':      r['backtest_r'],
+            'fdr_p':           r['fdr_p'],
+            'stable':          bool(r['stable']),
+            'n_stable':        r['n_stable'],
+            'market_adjusted': bool(r['market_adjusted']),
+            'run_at':          r['run_at'],
+        } for r in rows],
+    })
+
+
 @app.route('/symbol-changes')
 def api_symbol_changes():
     """Look up rename for a symbol. ?symbol=EMS → {found, new_symbol?, effective_date?}"""
