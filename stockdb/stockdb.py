@@ -75,6 +75,22 @@ class StockDB:
         self.db.commit()
         c.close()
 
+    def CreateTableDividends(self, drop=False):
+        '''Create the dividends table (historical per-share dividend amounts)'''
+        c = self.db.cursor()
+        if drop:
+            c.execute('DROP TABLE IF EXISTS dividends')
+        c.execute('''CREATE TABLE IF NOT EXISTS dividends (
+            symbol   TEXT    NOT NULL,
+            ex_date  INTEGER NOT NULL,
+            amount   REAL    NOT NULL,
+            currency TEXT    NOT NULL DEFAULT 'AUD',
+            PRIMARY KEY (symbol, ex_date)
+        )''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_dividends_symbol ON dividends(symbol)')
+        self.db.commit()
+        c.close()
+
     def CreateIndexesShorts(self):
         c = self.db.cursor()
         print("Creating shorts indexes...")

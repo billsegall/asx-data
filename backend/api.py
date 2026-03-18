@@ -3,7 +3,7 @@
 # No user auth — internal network only.
 # Frontend calls this instead of importing stockdb directly.
 
-import bisect, datetime, json, math, os, sqlite3, time
+import bisect, datetime, json, math, os, sqlite3, threading, time
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import yfinance as yf
@@ -199,6 +199,25 @@ def _enrich_batch(symbols):
         if row[3] and price:
             result[row[0]]['mcap'] = millify(row[3] * price)
 
+    # Query 6: key fundamentals (weekly snapshot)
+    try:
+        c.execute(f'''
+            SELECT symbol, trailing_pe, forward_pe, dividend_yield,
+                   recommendation_key, target_mean_price, beta
+            FROM fundamentals
+            WHERE symbol IN ({placeholders})
+              AND (symbol, date) IN (SELECT symbol, MAX(date) FROM fundamentals GROUP BY symbol)
+        ''', stale)
+        for row in c.fetchall():
+            result[row[0]]['trailing_pe']    = row[1]
+            result[row[0]]['forward_pe']     = row[2]
+            result[row[0]]['div_yield']      = row[3]
+            result[row[0]]['recommendation'] = row[4]
+            result[row[0]]['target_price']   = row[5]
+            result[row[0]]['beta']           = row[6]
+    except Exception:
+        pass  # fundamentals table may not exist yet
+
     for s in stale:
         _enrich_cache[s] = (now_ts, result[s])
 
@@ -354,6 +373,82 @@ def api_symbol_info(symbol):
         if row:
             mcap = shares * row[0]
     return jsonify({'name': name, 'industry': industry, 'mcap': millify(mcap) if mcap else None})
+
+
+@app.route('/api/fundamentals/<symbol>')
+def api_fundamentals(symbol):
+    """Full fundamentals row for one symbol."""
+    symbol = symbol.strip().upper()
+    c = stocks.cursor()
+    try:
+        row = c.execute(
+            'SELECT * FROM fundamentals WHERE symbol = ? ORDER BY date DESC LIMIT 1', (symbol,)
+        ).fetchone()
+    except Exception:
+        return jsonify({'error': 'fundamentals table not available'}), 503
+    if not row:
+        return jsonify({'error': 'No fundamentals data'}), 404
+    cols = [d[0] for d in c.description]
+    return jsonify(dict(zip(cols, row)))
+
+
+@app.route('/api/dividends/<symbol>')
+def api_dividends(symbol):
+    """Historical dividend payments for one symbol, newest first."""
+    symbol = symbol.strip().upper()
+    c = stocks.cursor()
+    try:
+        rows = c.execute(
+            'SELECT ex_date, amount, currency FROM dividends WHERE symbol = ? ORDER BY ex_date DESC',
+            (symbol,)
+        ).fetchall()
+    except Exception:
+        return jsonify({'error': 'dividends table not available'}), 503
+    return jsonify([{
+        'ex_date':  r[0] * 1000,  # ms for JS/Plotly
+        'amount':   r[1],
+        'currency': r[2],
+    } for r in rows])
+
+
+@app.route('/api/fundamentals/all')
+def api_fundamentals_all():
+    """All current symbols with key fundamentals columns, sorted by market cap desc. Used by screener."""
+    c = stocks.cursor()
+    try:
+        rows = c.execute('''
+            SELECT f.symbol, s.name, s.industry,
+                   f.market_cap, f.trailing_pe, f.forward_pe, f.price_to_book,
+                   f.enterprise_to_ebitda, f.profit_margins, f.return_on_equity,
+                   f.return_on_assets, f.revenue_growth, f.earnings_growth,
+                   f.dividend_yield, f.payout_ratio, f.debt_to_equity,
+                   f.current_ratio, f.beta, f.week52_change,
+                   f.recommendation_key, f.analyst_count,
+                   f.target_mean_price, f.target_low_price, f.target_high_price,
+                   f.eps_trailing, f.eps_forward, f.total_revenue, f.ebitda,
+                   f.net_income, f.total_cash, f.total_debt, f.free_cashflow,
+                   f.shares_outstanding, f.held_pct_insiders, f.held_pct_institutions,
+                   f.fetched_at
+            FROM fundamentals f
+            JOIN symbols s ON f.symbol = s.symbol
+            WHERE s.current = 1
+              AND f.date = (SELECT MAX(f2.date) FROM fundamentals f2 WHERE f2.symbol = f.symbol)
+            ORDER BY f.market_cap DESC
+        ''').fetchall()
+    except Exception as e:
+        app.logger.warning('api_fundamentals_all: %s', e)
+        return jsonify([])
+    cols = [
+        'symbol','name','industry','market_cap','trailing_pe','forward_pe','price_to_book',
+        'enterprise_to_ebitda','profit_margins','return_on_equity','return_on_assets',
+        'revenue_growth','earnings_growth','dividend_yield','payout_ratio','debt_to_equity',
+        'current_ratio','beta','week52_change','recommendation_key','analyst_count',
+        'target_mean_price','target_low_price','target_high_price',
+        'eps_trailing','eps_forward','total_revenue','ebitda','net_income',
+        'total_cash','total_debt','free_cashflow',
+        'shares_outstanding','held_pct_insiders','held_pct_institutions','fetched_at',
+    ]
+    return jsonify([dict(zip(cols, r)) for r in rows])
 
 
 def _serve_html(filename):
@@ -717,6 +812,1099 @@ def api_analysis_correlations_db():
             'run_at':          r['run_at'],
         } for r in rows],
     })
+
+
+# ---------------------------------------------------------------------------
+# Correlation backtests — parameterized, multi-config
+# ---------------------------------------------------------------------------
+
+BACKTEST_START_TS = 1740787200  # 2025-03-01 UTC
+_BT_POSITION_SIZE = 1000
+_BT_FEE_FLAT      = 6.0
+_BT_FEE_PCT       = 0.0008   # 0.08%
+_BT_START_BALANCE = 50000
+
+
+def _bt_fee(trade_value):
+    """Fee per leg: $6 flat or 0.08% of trade value, whichever is higher."""
+    return max(_BT_FEE_FLAT, _BT_FEE_PCT * trade_value)
+
+BACKTEST_CONFIGS = [
+    {
+        'id':          'v1',
+        'name':        'Baseline',
+        'description': 'All positive-direction pairs, no overlap constraint.',
+        'params': {
+            'min_train_r':    0.90,
+            'min_backtest_r': 0.10,
+            'min_lag_days':   1,
+            'no_overlap':     False,
+        },
+    },
+    {
+        'id':          'v2',
+        'name':        'Conservative',
+        'description': 'Lag ≥ 3d, no overlapping follower positions, tighter r thresholds.',
+        'params': {
+            'min_train_r':      0.91,
+            'min_backtest_r':   0.15,
+            'min_lag_days':     3,
+            'no_overlap':       True,
+            'deduplicate_pairs': False,
+        },
+    },
+    {
+        'id':          'v3',
+        'name':        'Conservative + Dedup',
+        'description': 'As v2, but for each symbol pair {A,B} only the stronger train_r direction is kept.',
+        'params': {
+            'min_train_r':      0.91,
+            'min_backtest_r':   0.15,
+            'min_lag_days':     3,
+            'no_overlap':       True,
+            'deduplicate_pairs': True,
+        },
+    },
+    {
+        'id':          'v5',
+        'name':        'Dedup, lag ≥ 3d, high backtest_r',
+        'description': 'As v4 but lag ≥ 3d, train_r ≥ 0.85, backtest_r ≥ 0.40.',
+        'params': {
+            'min_train_r':       0.85,
+            'min_backtest_r':    0.40,
+            'min_lag_days':      3,
+            'no_overlap':        True,
+            'deduplicate_pairs': True,
+        },
+    },
+    {
+        'id':          'v4',
+        'name':        'Dedup, lag ≥ 2d',
+        'description': 'As v3 but lag ≥ 2d, train_r ≥ 0.94, backtest_r ≥ 0.20.',
+        'params': {
+            'min_train_r':       0.94,
+            'min_backtest_r':    0.20,
+            'min_lag_days':      2,
+            'no_overlap':        True,
+            'deduplicate_pairs': True,
+        },
+    },
+    {
+        'id':          'v6',
+        'name':        'Sweep hot zone',
+        'description': 'Best sweep combo: train_r ≥ 0.80, backtest_r ≥ 0.10, lag ≥ 15d, dedup + no overlap.',
+        'params': {
+            'min_train_r':       0.80,
+            'min_backtest_r':    0.10,
+            'min_lag_days':      15,
+            'no_overlap':        True,
+            'deduplicate_pairs': True,
+        },
+    },
+    {
+        'id':          'v7',
+        'name':        'Hot zone — Materials + C&PS only',
+        'description': 'v6 filtered to Materials and Commercial & Professional Services industries only.',
+        'params': {
+            'min_train_r':       0.80,
+            'min_backtest_r':    0.10,
+            'min_lag_days':      15,
+            'no_overlap':        True,
+            'deduplicate_pairs': True,
+            'industries':        ['Materials', 'Commercial & Professional Services'],
+        },
+    },
+    {
+        'id':          'v8',
+        'name':        'Two-pair core',
+        'description': 'Most durable pairs from prior-year analysis: RIO→SBM (lag 15) and BXB→DOW (lag 17).',
+        'params': {
+            'min_train_r':       0.80,
+            'min_backtest_r':    0.10,
+            'min_lag_days':      15,
+            'no_overlap':        True,
+            'deduplicate_pairs': True,
+            'symbol_pairs':      [['RIO', 'SBM'], ['BXB', 'DOW']],
+        },
+    },
+]
+
+_backtest_caches = {cfg['id']: {'result': None, 'date': None} for cfg in BACKTEST_CONFIGS}
+
+
+def _run_backtest(cfg):
+    """Compute virtual portfolio backtest for a given config."""
+    params            = cfg['params']
+    min_train_r       = params['min_train_r']
+    min_backtest_r    = params['min_backtest_r']
+    min_lag_days      = params.get('min_lag_days', 1)
+    no_overlap        = params.get('no_overlap', False)
+    deduplicate_pairs = params.get('deduplicate_pairs', False)
+    industries   = params.get('industries')    # optional list of industry names
+    symbol_pairs = params.get('symbol_pairs')  # optional [[leader, follower], ...] whitelist
+
+    if not os.path.exists(CORR_DB_PATH):
+        return None
+    cconn = sqlite3.connect(CORR_DB_PATH, check_same_thread=False)
+    sql = """SELECT leader, follower, lag_days, train_r, backtest_r
+             FROM correlations
+             WHERE direction = 'positive' AND train_r >= ? AND backtest_r > ? AND lag_days >= ?"""
+    qparams = [min_train_r, min_backtest_r, min_lag_days]
+    if industries:
+        sql += f" AND industry IN ({','.join('?'*len(industries))})"
+        qparams.extend(industries)
+    pairs = cconn.execute(sql, qparams).fetchall()
+    cconn.close()
+    if symbol_pairs:
+        allowed = {(a, b) for a, b in symbol_pairs}
+        pairs = [p for p in pairs if (p[0], p[1]) in allowed]
+    if not pairs:
+        return None
+
+    if deduplicate_pairs:
+        # For each unordered symbol pair {A, B}, keep only the direction with higher |train_r|
+        best = {}
+        for p in pairs:
+            key = tuple(sorted([p[0], p[1]]))
+            if key not in best or abs(p[3]) > abs(best[key][3]):
+                best[key] = p
+        pairs = list(best.values())
+
+    all_symbols = set()
+    for leader, follower, *_ in pairs:
+        all_symbols.add(leader)
+        all_symbols.add(follower)
+
+    sconn = sqlite3.connect(DATABASE, check_same_thread=False)
+    placeholders = ','.join('?' * len(all_symbols))
+    rows = sconn.execute(
+        f"""SELECT symbol, date, open, close FROM endofday
+            WHERE symbol IN ({placeholders}) AND date >= ?
+            ORDER BY symbol, date ASC""",
+        list(all_symbols) + [BACKTEST_START_TS]
+    ).fetchall()
+    sconn.close()
+
+    eod = {}
+    date_set = set()
+    for symbol, ts, open_p, close_p in rows:
+        ds = datetime.datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d')
+        eod.setdefault(symbol, {})[ds] = (open_p, close_p)
+        date_set.add(ds)
+
+    calendar = sorted(date_set)
+    if len(calendar) < 2:
+        return None
+
+    transactions = []
+    # follower -> sell_date of open position (only used when no_overlap=True)
+    follower_busy_until = {}
+
+    for i in range(1, len(calendar)):
+        d      = calendar[i]
+        d_prev = calendar[i - 1]
+
+        for leader, follower, lag_days, train_r, backtest_r in pairs:
+            if i + lag_days >= len(calendar):
+                continue
+
+            lc_today = eod.get(leader, {}).get(d)
+            lc_prev  = eod.get(leader, {}).get(d_prev)
+            if not lc_today or not lc_prev or lc_prev[1] == 0:
+                continue
+
+            leader_ret = (lc_today[1] - lc_prev[1]) / lc_prev[1]
+            if leader_ret <= 0:
+                continue
+
+            buy_date  = calendar[i + 1]
+            sell_date = calendar[i + lag_days]
+
+            if no_overlap:
+                if buy_date < follower_busy_until.get(follower, ''):
+                    continue
+
+            buy_data  = eod.get(follower, {}).get(buy_date)
+            sell_data = eod.get(follower, {}).get(sell_date)
+            if not buy_data or not sell_data:
+                continue
+
+            buy_price  = buy_data[0]   # open
+            sell_price = sell_data[1]  # close
+            if not buy_price or buy_price <= 0:
+                continue
+
+            # Shares: start assuming min (flat) fee, then verify actual fee fits
+            shares = int((_BT_POSITION_SIZE - _BT_FEE_FLAT) / buy_price)
+            buy_fee = _bt_fee(shares * buy_price)
+            while shares > 0 and shares * buy_price + buy_fee > _BT_POSITION_SIZE:
+                shares -= 1
+                buy_fee = _bt_fee(shares * buy_price)
+            if shares < 1:
+                continue
+
+            sell_fee = _bt_fee(shares * sell_price)
+            cost     = shares * buy_price + buy_fee
+            proceeds = shares * sell_price - sell_fee
+            pnl      = proceeds - cost
+
+            if no_overlap and sell_date > follower_busy_until.get(follower, ''):
+                follower_busy_until[follower] = sell_date
+
+            transactions.append({
+                'signal_date': d,
+                'buy_date':    buy_date,
+                'sell_date':   sell_date,
+                'leader':      leader,
+                'follower':    follower,
+                'lag_days':    lag_days,
+                'train_r':     round(train_r, 4),
+                'backtest_r':  round(backtest_r, 4),
+                'buy_price':   round(buy_price, 4),
+                'sell_price':  round(sell_price, 4),
+                'shares':      shares,
+                'cost':        round(cost, 2),
+                'proceeds':    round(proceeds, 2),
+                'pnl':         round(pnl, 2),
+            })
+
+    transactions.sort(key=lambda t: (t['sell_date'], t['signal_date']))
+
+    balance = _BT_START_BALANCE
+    balance_by_date = {}
+    for t in transactions:
+        balance += t['pnl']
+        t['balance_after'] = round(balance, 2)
+        balance_by_date[t['sell_date']] = round(balance, 2)
+
+    balance_series = [{'date': d, 'balance': b} for d, b in sorted(balance_by_date.items())]
+    balance_series.insert(0, {'date': calendar[0], 'balance': _BT_START_BALANCE})
+
+    n_trades   = len(transactions)
+    n_wins     = sum(1 for t in transactions if t['pnl'] > 0)
+    n_losses   = n_trades - n_wins
+    total_fees = round(sum(t['cost'] - t['shares'] * t['buy_price'] +
+                          t['shares'] * t['sell_price'] - t['proceeds']
+                          for t in transactions), 2)
+    avg_pnl    = round(sum(t['pnl'] for t in transactions) / n_trades, 2) if n_trades else 0
+    end_bal    = round(balance, 2)
+    total_ret  = round((end_bal - _BT_START_BALANCE) / _BT_START_BALANCE * 100, 2)
+
+    today     = calendar[-1]
+    today_idx = len(calendar) - 1
+    recommendations = []
+    for leader, follower, lag_days, train_r, backtest_r in pairs:
+        if today_idx < 1:
+            continue
+        lc_today = eod.get(leader, {}).get(today)
+        lc_prev  = eod.get(leader, {}).get(calendar[today_idx - 1])
+        if not lc_today or not lc_prev or lc_prev[1] == 0:
+            continue
+        leader_ret = (lc_today[1] - lc_prev[1]) / lc_prev[1]
+        if leader_ret <= 0:
+            continue
+        follower_today = eod.get(follower, {}).get(today)
+        recommendations.append({
+            'leader':              leader,
+            'leader_return_pct':   round(leader_ret * 100, 2),
+            'follower':            follower,
+            'lag_days':            lag_days,
+            'train_r':             round(train_r, 4),
+            'backtest_r':          round(backtest_r, 4),
+            'follower_last_close': round(follower_today[1], 4) if follower_today else None,
+            'signal_date':         today,
+        })
+    recommendations.sort(key=lambda r: r['leader_return_pct'], reverse=True)
+
+    return {
+        'id':   cfg['id'],
+        'name': cfg['name'],
+        'strategy': {
+            'min_train_r':        min_train_r,
+            'min_backtest_r':     min_backtest_r,
+            'min_lag_days':       min_lag_days,
+            'no_overlap':         no_overlap,
+            'deduplicate_pairs':  deduplicate_pairs,
+            'position_size':      _BT_POSITION_SIZE,
+            'fee_flat':           _BT_FEE_FLAT,
+            'fee_pct':            _BT_FEE_PCT,
+            'start_balance':      _BT_START_BALANCE,
+            'backtest_start':     '2025-03-01',
+            'n_qualifying_pairs': len(pairs),
+        },
+        'summary': {
+            'end_balance':      end_bal,
+            'total_return_pct': total_ret,
+            'n_trades':         n_trades,
+            'n_wins':           n_wins,
+            'n_losses':         n_losses,
+            'win_rate':         round(n_wins / n_trades * 100, 1) if n_trades else 0,
+            'avg_trade_pnl':    avg_pnl,
+            'total_fees':       total_fees,
+        },
+        'balance_series':  balance_series,
+        'transactions':    list(reversed(transactions)),
+        'recommendations': recommendations,
+    }
+
+
+def _get_backtest(cfg_id):
+    """Return cached backtest result, recomputing if stale (once per calendar day)."""
+    cfg = next((c for c in BACKTEST_CONFIGS if c['id'] == cfg_id), None)
+    if not cfg:
+        return None
+    cache = _backtest_caches[cfg_id]
+    today = datetime.date.today().isoformat()
+    if cache['date'] != today or cache['result'] is None:
+        result = _run_backtest(cfg)
+        if result is None:
+            return None
+        cache['result'] = result
+        cache['date']   = today
+    return cache['result']
+
+
+@app.route('/api/analysis/correlations/backtests')
+def api_analysis_correlations_backtests_list():
+    """List all backtest configs with summaries (computes each if not cached)."""
+    today = datetime.date.today().isoformat()
+    out = []
+    for cfg in BACKTEST_CONFIGS:
+        result = _get_backtest(cfg['id'])
+        if result is None:
+            out.append({'id': cfg['id'], 'name': cfg['name'],
+                        'description': cfg['description'], 'params': cfg['params'],
+                        'run_date': None, 'available': False})
+        else:
+            out.append({'id': cfg['id'], 'name': cfg['name'],
+                        'description': cfg['description'], 'params': cfg['params'],
+                        'run_date': today, 'available': True,
+                        'strategy': result['strategy'], 'summary': result['summary']})
+    return jsonify(out)
+
+
+@app.route('/api/analysis/correlations/backtests/<cfg_id>')
+def api_analysis_correlations_backtest_detail(cfg_id):
+    """Full backtest detail for a single config id."""
+    if not any(c['id'] == cfg_id for c in BACKTEST_CONFIGS):
+        return jsonify({'error': 'Unknown backtest id'}), 404
+    result = _get_backtest(cfg_id)
+    if result is None:
+        return jsonify({'error': 'No correlation data available'}), 404
+    return jsonify(result)
+
+
+# Keep old singular endpoint as alias for v1
+@app.route('/api/analysis/correlations/backtest')
+def api_analysis_correlations_backtest():
+    result = _get_backtest('v1')
+    if result is None:
+        return jsonify({'error': 'No correlation data available'}), 404
+    return jsonify(result)
+
+
+@app.route('/api/analysis/correlations/backtest-sweep')
+def api_analysis_correlations_backtest_sweep():
+    """Serve pre-computed sweep results from backtest_sweep.json."""
+    data = _load_analysis_file('backtest_sweep.json')
+    if data is None:
+        return jsonify({'error': 'No sweep results — run analysis/backtest_sweep.py first'}), 404
+    return jsonify(data)
+
+
+# ---------------------------------------------------------------------------
+# Signal backtests — factor-based cross-sectional strategies
+# ---------------------------------------------------------------------------
+
+SIGNAL_BT_CONFIGS = [
+    {
+        'id': 's1',
+        'name': 'Short Interest',
+        'description': 'Stocks with elevated short positions tend to outperform (short-squeeze). Buy top-10 by short_pct, hold 3 days.',
+        'params': {
+            'factor': 'short_pct',
+            'lag': 3,
+            'direction': 'long_top',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's2',
+        'name': 'Low Volatility',
+        'description': 'High intraday range stocks tend to underperform. Buy the 10 lowest hl_spread stocks, hold 9 days.',
+        'params': {
+            'factor': 'hl_spread',
+            'lag': 9,
+            'direction': 'long_bottom',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's3',
+        'name': 'Mean Reversion',
+        'description': 'Buy the most oversold stocks (lowest returns_z20). 20-day mean reversion with 1-day hold.',
+        'params': {
+            'factor': 'returns_z20',
+            'lag': 1,
+            'direction': 'long_bottom',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's4',
+        'name': 'Gap Momentum',
+        'description': 'Buy stocks with the largest overnight gap up. Gap continuation, hold 2 days.',
+        'params': {
+            'factor': 'gap',
+            'lag': 2,
+            'direction': 'long_top',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's5',
+        'name': 'Volume Anomaly',
+        'description': 'Unusual volume spike (20-day z-score). Buy top-10 volume anomaly stocks, hold 3 days.',
+        'params': {
+            'factor': 'volume_z20',
+            'lag': 3,
+            'direction': 'long_top',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's7',
+        'name': 'Short Interest Z-Score',
+        'description': 'Stocks with elevated short interest relative to their own 20-day history tend to underperform. Buy lowest short_z20, lag 1. IC_IR −0.116, 100% same-sign across all lags.',
+        'params': {
+            'factor': 'short_z20',
+            'lag': 1,
+            'direction': 'long_bottom',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's8',
+        'name': 'Volume Spike (5-day)',
+        'description': 'Unusual volume relative to the 5-day baseline predicts outperformance. Buy top volume_z5 stocks, lag 4. IC_IR +0.094, 100% same-sign across all lags.',
+        'params': {
+            'factor': 'volume_z5',
+            'lag': 4,
+            'direction': 'long_top',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's9',
+        'name': 'Short Trend (20-day slope)',
+        'description': 'Rising short interest trend predicts underperformance. Buy lowest short_slope20 stocks, lag 1. IC_IR −0.047, 95% same-sign — weakest of the directional set.',
+        'params': {
+            'factor': 'short_slope20',
+            'lag': 1,
+            'direction': 'long_bottom',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 's6',
+        'name': 'Top-6 Positive Combined',
+        'description': 'Union of signals from the 6 highest positive-IC factors: short_pct, returns_1d, gap, volume_z20, volume_z5. Top-8 per factor.',
+        'params': {
+            'factors': [
+                ('short_pct',  3, 'long_top'),
+                ('returns_1d', 1, 'long_top'),
+                ('gap',        2, 'long_top'),
+                ('volume_z20', 3, 'long_top'),
+                ('volume_z5',  2, 'long_top'),
+            ],
+            'top_n_per_factor': 8,
+            'no_overlap': True,
+        },
+    },
+    # Fundamentals-based configs (use weekly Yahoo Finance snapshot; factor prefix 'f_')
+    {
+        'id': 'f1',
+        'name': 'Low P/E',
+        'description': 'Buy the 10 cheapest stocks by trailing P/E. Value factor — low PE tends to outperform over medium horizons.',
+        'params': {
+            'factor': 'f_trailing_pe',
+            'lag': 5,
+            'direction': 'long_bottom',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 'f2',
+        'name': 'High ROE',
+        'description': 'Buy the 10 stocks with the highest return on equity. Quality factor — high ROE firms tend to sustain outperformance.',
+        'params': {
+            'factor': 'f_return_on_equity',
+            'lag': 5,
+            'direction': 'long_top',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 'f3',
+        'name': 'High Dividend Yield',
+        'description': 'Buy the 10 highest dividend yield stocks. Income factor — high yield may signal undervaluation or income support.',
+        'params': {
+            'factor': 'f_dividend_yield',
+            'lag': 5,
+            'direction': 'long_top',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+    {
+        'id': 'f4',
+        'name': 'Low Leverage',
+        'description': 'Buy the 10 stocks with the lowest debt/equity ratio. Balance sheet quality — low leverage reduces downside risk.',
+        'params': {
+            'factor': 'f_debt_to_equity',
+            'lag': 5,
+            'direction': 'long_bottom',
+            'top_n': 10,
+            'no_overlap': True,
+        },
+    },
+]
+
+_signal_bt_caches = {cfg['id']: {'result': None, 'date': None} for cfg in SIGNAL_BT_CONFIGS}
+_signal_bt_lock   = threading.Lock()
+_signal_bt_thread = None  # background computation thread
+
+SIGNAL_BT_LOOKBACK = 60  # extra days before backtest start for rolling calculations
+
+
+def _linreg_slope(ys):
+    """Least-squares slope of ys (x = 0..n-1). Returns None if fewer than 2 points."""
+    n = len(ys)
+    if n < 2:
+        return None
+    sx = n * (n - 1) / 2
+    sx2 = n * (n - 1) * (2 * n - 1) / 6
+    sy = sum(ys)
+    sxy = sum(i * y for i, y in enumerate(ys))
+    denom = n * sx2 - sx * sx
+    if denom == 0:
+        return None
+    return (n * sxy - sx * sy) / denom
+
+
+def _zscore(vals, window):
+    """Z-score of the last value in vals using up to the last `window` values."""
+    if len(vals) < 2:
+        return None
+    w = vals[-window:] if len(vals) >= window else vals
+    n = len(w)
+    if n < 2:
+        return None
+    mean = sum(w) / n
+    var = sum((x - mean) ** 2 for x in w) / n
+    if var <= 0:
+        return None
+    return (w[-1] - mean) / var ** 0.5
+
+
+def _compute_factor(factor, history_eod, history_short, date_str, sym_fund=None):
+    """
+    Compute a scalar factor value for (symbol, date_str).
+    history_eod:   list of (open, high, low, close, volume) sorted by date ascending,
+                   including date_str at index [-1].
+    history_short: list of short_pct values aligned to the same dates, may have None gaps.
+    sym_fund:      dict of fundamentals column -> value (weekly snapshot) or None.
+    Returns float or None.
+    """
+    # Fundamentals factors — static weekly snapshot, column name follows 'f_' prefix
+    if factor.startswith('f_'):
+        if not sym_fund:
+            return None
+        col = factor[2:]  # strip 'f_' prefix → column name in fundamentals table
+        v = sym_fund.get(col)
+        return float(v) if v is not None else None
+
+    if not history_eod:
+        return None
+    cur = history_eod[-1]
+    o, h, l, c, vol = cur
+
+    if factor == 'short_pct':
+        return history_short[-1] if history_short else None
+
+    if factor == 'hl_spread':
+        if not c or c == 0:
+            return None
+        return (h - l) / c
+
+    if factor == 'gap':
+        if len(history_eod) < 2:
+            return None
+        prev_c = history_eod[-2][3]
+        if not prev_c or prev_c == 0:
+            return None
+        return (o - prev_c) / prev_c
+
+    if factor == 'returns_1d':
+        if len(history_eod) < 2:
+            return None
+        prev_c = history_eod[-2][3]
+        if not prev_c or prev_c == 0:
+            return None
+        return (c - prev_c) / prev_c
+
+    if factor == 'returns_z20':
+        if len(history_eod) < 3:
+            return None
+        rets = []
+        for i in range(1, len(history_eod)):
+            pc = history_eod[i - 1][3]
+            cc = history_eod[i][3]
+            if pc and cc and pc != 0:
+                rets.append((cc - pc) / pc)
+        return _zscore(rets, 20)
+
+    if factor == 'volume_z20':
+        vols = [r[4] for r in history_eod if r[4] and r[4] > 0]
+        return _zscore(vols, 20)
+
+    if factor == 'volume_z5':
+        vols = [r[4] for r in history_eod if r[4] and r[4] > 0]
+        return _zscore(vols, 5)
+
+    if factor == 'short_z20':
+        vals = [v for v in history_short if v is not None]
+        return _zscore(vals, 20)
+
+    if factor == 'returns_slope20':
+        if len(history_eod) < 3:
+            return None
+        rets = []
+        for i in range(1, len(history_eod)):
+            pc = history_eod[i - 1][3]
+            cc = history_eod[i][3]
+            if pc and cc and pc != 0:
+                rets.append((cc - pc) / pc)
+        w = rets[-20:] if len(rets) >= 20 else rets
+        return _linreg_slope(w)
+
+    if factor == 'short_slope20':
+        vals = [v for v in history_short if v is not None]
+        w = vals[-20:] if len(vals) >= 20 else vals
+        return _linreg_slope(w)
+
+    return None
+
+
+def _run_signal_backtest(cfg):
+    """Compute a factor-based cross-sectional backtest."""
+    params     = cfg['params']
+    no_overlap = params.get('no_overlap', True)
+    multi      = 'factors' in params
+
+    # Load all current symbols
+    sconn = sqlite3.connect(DATABASE, check_same_thread=False)
+    # Restrict to equities and ETFs: exclude market indices (XAO etc.) and ASX-listed options.
+    # 'Delisted' industry symbols that are still current=1 are mostly legitimate ETFs/LICs
+    # (data quality issue in the symbols table) so they are retained.
+    symbols_rows = sconn.execute(
+        "SELECT symbol FROM symbols WHERE current = 1 AND industry != 'Index' "
+        "AND symbol NOT IN (SELECT option_symbol FROM asx_options)"
+    ).fetchall()
+    all_symbols = [r[0] for r in symbols_rows]
+    if not all_symbols:
+        sconn.close()
+        return None
+
+    load_start_ts = BACKTEST_START_TS - SIGNAL_BT_LOOKBACK * 86400
+
+    # Load EOD — GROUP BY deduplicates split/consolidation double-rows.
+    # MAX(open/close) selects the split-adjusted (higher) price for consolidations,
+    # giving a continuous price series across corporate events.
+    ph = ','.join('?' * len(all_symbols))
+    eod_rows = sconn.execute(
+        f"SELECT symbol, date, MAX(open), MAX(high), MAX(low), MAX(close), MAX(volume) FROM endofday "
+        f"WHERE symbol IN ({ph}) AND date >= ? GROUP BY symbol, date ORDER BY symbol, date ASC",
+        all_symbols + [load_start_ts]
+    ).fetchall()
+
+    # Load shorts — GROUP BY to match EOD dedup approach
+    short_rows = sconn.execute(
+        f"SELECT symbol, date, MAX(short) FROM shorts "
+        f"WHERE symbol IN ({ph}) AND date >= ? GROUP BY symbol, date ORDER BY symbol, date ASC",
+        all_symbols + [load_start_ts]
+    ).fetchall()
+
+    # Load fundamentals snapshot (for f_ prefixed factors)
+    _FUND_COLS = [
+        'trailing_pe','forward_pe','price_to_book','enterprise_to_ebitda',
+        'profit_margins','return_on_equity','return_on_assets','revenue_growth',
+        'earnings_growth','dividend_yield','payout_ratio','debt_to_equity',
+        'current_ratio','beta',
+    ]
+    sym_fund = {}
+    try:
+        fund_rows = sconn.execute(
+            f"SELECT symbol, {','.join(_FUND_COLS)} FROM fundamentals"
+            f" WHERE symbol IN ({ph})"
+            f" AND (symbol, date) IN (SELECT symbol, MAX(date) FROM fundamentals GROUP BY symbol)",
+            all_symbols
+        ).fetchall()
+        for row in fund_rows:
+            sym_fund[row[0]] = dict(zip(_FUND_COLS, row[1:]))
+    except Exception:
+        pass  # fundamentals table may not be populated yet
+
+    sconn.close()
+
+    # Build per-symbol dicts: date_str -> (o,h,l,c,v) and date_str -> short_pct
+    sym_eod   = {}  # symbol -> [(date_str, o,h,l,c,v)]
+    sym_short = {}  # symbol -> {date_str: short_pct}
+
+    date_set_all = set()
+    for symbol, ts, o, h, l, c, vol in eod_rows:
+        ds = datetime.datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d')
+        sym_eod.setdefault(symbol, []).append((ds, o, h, l, c, vol))
+        date_set_all.add(ds)
+
+    for symbol, ts, short_pct in short_rows:
+        ds = datetime.datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d')
+        sym_short.setdefault(symbol, {})[ds] = short_pct
+
+    full_calendar = sorted(date_set_all)
+    backtest_start_str = datetime.datetime.utcfromtimestamp(BACKTEST_START_TS).strftime('%Y-%m-%d')
+    backtest_calendar = [d for d in full_calendar if d >= backtest_start_str]
+    if len(backtest_calendar) < 3:
+        return None
+
+    # Pre-build sorted date lists per symbol for fast history lookup
+    sym_dates = {sym: [row[0] for row in rows] for sym, rows in sym_eod.items()}
+    sym_eod_vals = {
+        sym: {row[0]: (row[1], row[2], row[3], row[4], row[5]) for row in rows}
+        for sym, rows in sym_eod.items()
+    }
+
+    # Detect price discontinuities caused by partially-applied split/consolidation adjustments.
+    # When fetch_splits re-downloads adjusted history, some rows may be missed, leaving the
+    # unadjusted price alongside an adjusted price on adjacent dates (e.g., $0.002 followed by
+    # $0.125 the next day). Flag any date where close/prev_close > 4× or < 0.25× as a
+    # "bad date". Trades spanning a bad date are excluded.
+    _DISCONTINUITY_THRESHOLD = 4.0
+    sym_bad_dates = {}  # symbol -> set of date strings with price discontinuities
+    for sym, rows in sym_eod.items():
+        bad = set()
+        prev_close = None
+        for ds, o, h, l, c, vol in rows:
+            if prev_close and c and prev_close > 0:
+                ratio = c / prev_close
+                if ratio > _DISCONTINUITY_THRESHOLD or ratio < 1.0 / _DISCONTINUITY_THRESHOLD:
+                    bad.add(ds)
+            prev_close = c if c else prev_close
+        if bad:
+            sym_bad_dates[sym] = bad
+
+    def get_history(symbol, up_to_date, n=25):
+        """Return last n EOD rows up to and including up_to_date."""
+        dates = sym_dates.get(symbol, [])
+        idx = bisect.bisect_right(dates, up_to_date)
+        slice_dates = dates[max(0, idx - n):idx]
+        vals_map = sym_eod_vals.get(symbol, {})
+        short_map = sym_short.get(symbol, {})
+        eod_h   = [vals_map[d] for d in slice_dates if d in vals_map]
+        short_h = [short_map.get(d) for d in slice_dates]
+        return eod_h, short_h
+
+    transactions = []
+    symbol_busy_until = {}  # symbol -> sell_date str (no_overlap guard)
+
+    if multi:
+        factors_list   = params['factors']   # [(factor, lag, direction), ...]
+        top_n_per      = params['top_n_per_factor']
+    else:
+        factors_list   = [(params['factor'], params['lag'], params['direction'])]
+        top_n_per      = params['top_n']
+
+    for i, signal_date in enumerate(backtest_calendar):
+        if i + 1 >= len(backtest_calendar):
+            break
+
+        buy_date = backtest_calendar[i + 1]
+
+        for factor, lag, direction in factors_list:
+            if i + lag >= len(backtest_calendar):
+                continue
+            sell_date = backtest_calendar[i + lag]
+
+            # Compute factor for all symbols on signal_date
+            factor_vals = {}
+            for symbol in all_symbols:
+                # Skip if the symbol has a price discontinuity in its recent history window:
+                # a corporate event within the last 25 trading days would corrupt rolling calcs.
+                bad = sym_bad_dates.get(symbol)
+                if bad:
+                    sym_d = sym_dates.get(symbol, [])
+                    idx_end = bisect.bisect_right(sym_d, signal_date)
+                    window_start = idx_end - 25
+                    if any(sym_d[k] in bad for k in range(max(0, window_start), idx_end)):
+                        continue
+
+                eod_h, short_h = get_history(symbol, signal_date, n=25)
+                if not eod_h:
+                    continue
+                # Only use symbol if it has EOD data ON signal_date
+                if eod_h[-1][3] is None:  # close must exist
+                    continue
+                # Check latest date in history is signal_date
+                last_date_in_hist = sym_dates.get(symbol, [])
+                if last_date_in_hist:
+                    ld = last_date_in_hist[bisect.bisect_right(last_date_in_hist, signal_date) - 1] if bisect.bisect_right(last_date_in_hist, signal_date) > 0 else None
+                    if ld != signal_date:
+                        continue  # no data on this exact date
+                val = _compute_factor(factor, eod_h, short_h, signal_date,
+                                     sym_fund=sym_fund.get(symbol))
+                if val is None:
+                    continue
+                factor_vals[symbol] = val
+
+            if len(factor_vals) < 2:
+                continue
+
+            # Cross-sectional rank [0..1]
+            sorted_syms = sorted(factor_vals, key=lambda s: factor_vals[s])
+            rank = {s: i / (len(sorted_syms) - 1) for i, s in enumerate(sorted_syms)}
+
+            if direction == 'long_top':
+                selected = sorted_syms[-top_n_per:]
+            else:  # long_bottom
+                selected = sorted_syms[:top_n_per]
+
+            for symbol in selected:
+                if no_overlap and buy_date < symbol_busy_until.get(symbol, ''):
+                    continue
+
+                # Skip any trade that spans a price discontinuity (corporate event artifact).
+                # Check all dates from buy_date through sell_date inclusive.
+                bad = sym_bad_dates.get(symbol)
+                if bad:
+                    sym_d = sym_dates.get(symbol, [])
+                    lo = bisect.bisect_left(sym_d, buy_date)
+                    hi = bisect.bisect_right(sym_d, sell_date)
+                    if any(sym_d[k] in bad for k in range(lo, hi)):
+                        continue
+
+                buy_vals  = sym_eod_vals.get(symbol, {}).get(buy_date)
+                sell_vals = sym_eod_vals.get(symbol, {}).get(sell_date)
+                if not buy_vals or not sell_vals:
+                    continue
+
+                buy_price  = buy_vals[0]   # open
+                sell_price = sell_vals[3]  # close
+                if not buy_price or buy_price <= 0:
+                    continue
+
+                shares = int((_BT_POSITION_SIZE - _BT_FEE_FLAT) / buy_price)
+                buy_fee = _bt_fee(shares * buy_price)
+                while shares > 0 and shares * buy_price + buy_fee > _BT_POSITION_SIZE:
+                    shares -= 1
+                    buy_fee = _bt_fee(shares * buy_price)
+                if shares < 1:
+                    continue
+
+                sell_fee = _bt_fee(shares * sell_price)
+                cost     = shares * buy_price + buy_fee
+                proceeds = shares * sell_price - sell_fee
+                pnl      = proceeds - cost
+
+                if no_overlap and sell_date > symbol_busy_until.get(symbol, ''):
+                    symbol_busy_until[symbol] = sell_date
+
+                transactions.append({
+                    'signal_date':   signal_date,
+                    'buy_date':      buy_date,
+                    'sell_date':     sell_date,
+                    'symbol':        symbol,
+                    'factor':        factor,
+                    'factor_value':  round(factor_vals[symbol], 5),
+                    'rank':          round(rank[symbol], 3),
+                    'lag_days':      lag,
+                    'buy_price':     round(buy_price, 4),
+                    'sell_price':    round(sell_price, 4),
+                    'shares':        shares,
+                    'cost':          round(cost, 2),
+                    'proceeds':      round(proceeds, 2),
+                    'pnl':           round(pnl, 2),
+                })
+
+    transactions.sort(key=lambda t: (t['sell_date'], t['signal_date']))
+
+    balance = _BT_START_BALANCE
+    balance_by_date = {}
+    for t in transactions:
+        balance += t['pnl']
+        t['balance_after'] = round(balance, 2)
+        balance_by_date[t['sell_date']] = round(balance, 2)
+
+    balance_series = [{'date': d, 'balance': b} for d, b in sorted(balance_by_date.items())]
+    balance_series.insert(0, {'date': backtest_calendar[0], 'balance': _BT_START_BALANCE})
+
+    n_trades   = len(transactions)
+    n_wins     = sum(1 for t in transactions if t['pnl'] > 0)
+    n_losses   = n_trades - n_wins
+    total_fees = round(sum(
+        t['cost'] - t['shares'] * t['buy_price'] +
+        t['shares'] * t['sell_price'] - t['proceeds']
+        for t in transactions
+    ), 2)
+    avg_pnl    = round(sum(t['pnl'] for t in transactions) / n_trades, 2) if n_trades else 0
+    end_bal    = round(balance, 2)
+    total_ret  = round((end_bal - _BT_START_BALANCE) / _BT_START_BALANCE * 100, 2)
+
+    # Sharpe: annualised using daily P&L / start balance as daily return
+    daily_pnl = {}
+    for t in transactions:
+        daily_pnl[t['sell_date']] = daily_pnl.get(t['sell_date'], 0.0) + t['pnl']
+    daily_rets = [v / _BT_START_BALANCE for v in daily_pnl.values()]
+    sharpe = None
+    if len(daily_rets) >= 5:
+        mean_r = sum(daily_rets) / len(daily_rets)
+        var_r  = sum((r - mean_r) ** 2 for r in daily_rets) / len(daily_rets)
+        std_r  = var_r ** 0.5
+        if std_r > 0:
+            sharpe = round(mean_r / std_r * (252 ** 0.5), 3)
+
+    # Max drawdown
+    peak = _BT_START_BALANCE
+    max_dd = 0.0
+    for pt in balance_series:
+        b = pt['balance']
+        if b > peak:
+            peak = b
+        dd = (peak - b) / peak * 100 if peak > 0 else 0
+        if dd > max_dd:
+            max_dd = dd
+    max_dd = round(max_dd, 2)
+
+    strategy_info = {
+        'position_size':   _BT_POSITION_SIZE,
+        'fee_flat':        _BT_FEE_FLAT,
+        'fee_pct':         _BT_FEE_PCT,
+        'start_balance':   _BT_START_BALANCE,
+        'backtest_start':  '2025-03-01',
+        'no_overlap':      no_overlap,
+    }
+    if multi:
+        strategy_info['factors'] = [
+            {'factor': f, 'lag': lg, 'direction': d}
+            for f, lg, d in factors_list
+        ]
+        strategy_info['top_n_per_factor'] = params['top_n_per_factor']
+    else:
+        strategy_info['factor']    = params['factor']
+        strategy_info['lag']       = params['lag']
+        strategy_info['direction'] = params['direction']
+        strategy_info['top_n']     = params['top_n']
+
+    return {
+        'id':      cfg['id'],
+        'name':    cfg['name'],
+        'strategy': strategy_info,
+        'summary': {
+            'end_balance':       end_bal,
+            'total_return_pct':  total_ret,
+            'n_trades':          n_trades,
+            'n_wins':            n_wins,
+            'n_losses':          n_losses,
+            'win_rate':          round(n_wins / n_trades * 100, 1) if n_trades else 0,
+            'avg_trade_pnl':     avg_pnl,
+            'total_fees':        total_fees,
+            'sharpe_ratio':      sharpe,
+            'max_drawdown_pct':  max_dd,
+        },
+        'balance_series': balance_series,
+        'transactions':   list(reversed(transactions)),
+    }
+
+
+def _bg_compute_signal_backtests():
+    """Compute all signal backtests sequentially in a background thread."""
+    today = datetime.date.today().isoformat()
+    for cfg in SIGNAL_BT_CONFIGS:
+        try:
+            result = _run_signal_backtest(cfg)
+            if result:
+                with _signal_bt_lock:
+                    _signal_bt_caches[cfg['id']]['result'] = result
+                    _signal_bt_caches[cfg['id']]['date']   = today
+        except Exception as e:
+            print(f'Signal backtest {cfg["id"]} error: {e}')
+
+
+def _ensure_signal_bt_computing():
+    """Start background computation if cache is stale and no thread is running."""
+    global _signal_bt_thread
+    today = datetime.date.today().isoformat()
+    with _signal_bt_lock:
+        stale = any(c['date'] != today or c['result'] is None
+                    for c in _signal_bt_caches.values())
+        running = _signal_bt_thread is not None and _signal_bt_thread.is_alive()
+    if stale and not running:
+        t = threading.Thread(target=_bg_compute_signal_backtests, daemon=True)
+        t.start()
+        with _signal_bt_lock:
+            _signal_bt_thread = t
+
+
+def _get_signal_bt_cached(cfg_id):
+    """Return cached result for cfg_id, or None if not yet computed."""
+    today = datetime.date.today().isoformat()
+    with _signal_bt_lock:
+        cache = _signal_bt_caches.get(cfg_id, {})
+        return cache.get('result') if cache.get('date') == today else None
+
+
+# Kick off background computation at startup so first page load is instant.
+_ensure_signal_bt_computing()
+
+
+@app.route('/api/analysis/signal-backtests')
+def api_analysis_signal_backtests_list():
+    _ensure_signal_bt_computing()
+    today = datetime.date.today().isoformat()
+    computing = _signal_bt_thread is not None and _signal_bt_thread.is_alive()
+    out = []
+    for cfg in SIGNAL_BT_CONFIGS:
+        result = _get_signal_bt_cached(cfg['id'])
+        if result is None:
+            out.append({'id': cfg['id'], 'name': cfg['name'],
+                        'description': cfg['description'], 'params': cfg['params'],
+                        'run_date': None, 'available': False, 'computing': computing})
+        else:
+            out.append({'id': cfg['id'], 'name': cfg['name'],
+                        'description': cfg['description'], 'params': cfg['params'],
+                        'run_date': today, 'available': True, 'computing': False,
+                        'strategy': result['strategy'], 'summary': result['summary']})
+    return jsonify(out)
+
+
+@app.route('/api/analysis/signal-backtests/<cfg_id>')
+def api_analysis_signal_backtest_detail(cfg_id):
+    if not any(c['id'] == cfg_id for c in SIGNAL_BT_CONFIGS):
+        return jsonify({'error': 'Unknown signal backtest id'}), 404
+    _ensure_signal_bt_computing()
+    result = _get_signal_bt_cached(cfg_id)
+    if result is None:
+        return jsonify({'computing': True}), 202
+    return jsonify(result)
 
 
 @app.route('/symbol-changes')

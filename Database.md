@@ -64,6 +64,80 @@ Used for efficient computation of 1m, 3m, 6m, 1y, 3y, 5y returns without scannin
 Populated by `stockdb/fetch_splits.py` using Yahoo Finance.
 When a new split is detected, the full adjusted OHLCV history for that symbol is re-downloaded.
 
+### `fundamentals`
+Fundamental and analyst data from Yahoo Finance. One row per symbol (upserted weekly). Fetched by `asx-data/scripts/fetch_fundamentals.py` every Friday evening.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `symbol` | `TEXT PRIMARY KEY` | ASX ticker |
+| `fetched_at` | `TEXT` | ISO datetime of last fetch |
+| `market_cap` | `REAL` | |
+| `enterprise_value` | `REAL` | |
+| `trailing_pe` | `REAL` | |
+| `forward_pe` | `REAL` | |
+| `price_to_book` | `REAL` | |
+| `price_to_sales` | `REAL` | Trailing 12 months |
+| `enterprise_to_revenue` | `REAL` | EV/Revenue |
+| `enterprise_to_ebitda` | `REAL` | EV/EBITDA |
+| `profit_margins` | `REAL` | Net margin |
+| `operating_margins` | `REAL` | |
+| `gross_margins` | `REAL` | |
+| `ebitda_margins` | `REAL` | |
+| `return_on_assets` | `REAL` | ROA |
+| `return_on_equity` | `REAL` | ROE |
+| `revenue_growth` | `REAL` | YoY |
+| `earnings_growth` | `REAL` | YoY |
+| `total_revenue` | `REAL` | |
+| `ebitda` | `REAL` | |
+| `net_income` | `REAL` | |
+| `free_cashflow` | `REAL` | |
+| `operating_cashflow` | `REAL` | |
+| `total_cash` | `REAL` | |
+| `total_debt` | `REAL` | |
+| `debt_to_equity` | `REAL` | |
+| `current_ratio` | `REAL` | |
+| `quick_ratio` | `REAL` | |
+| `eps_trailing` | `REAL` | |
+| `eps_forward` | `REAL` | |
+| `dividend_yield` | `REAL` | As a percentage |
+| `dividend_rate` | `REAL` | Annual dividend per share |
+| `payout_ratio` | `REAL` | |
+| `five_year_avg_div_yield` | `REAL` | |
+| `ex_dividend_date` | `INTEGER` | Unix timestamp |
+| `last_dividend_value` | `REAL` | |
+| `recommendation_mean` | `REAL` | 1=Strong Buy … 5=Strong Sell |
+| `recommendation_key` | `TEXT` | e.g. `'buy'`, `'hold'`, `'sell'` |
+| `analyst_count` | `INTEGER` | Number of analyst opinions |
+| `target_mean_price` | `REAL` | Consensus 12-month price target |
+| `target_high_price` | `REAL` | |
+| `target_low_price` | `REAL` | |
+| `target_median_price` | `REAL` | |
+| `beta` | `REAL` | 5-year monthly vs S&P 500 |
+| `week52_change` | `REAL` | 52-week price change as a fraction |
+| `shares_outstanding` | `REAL` | |
+| `float_shares` | `REAL` | |
+| `held_pct_insiders` | `REAL` | Fraction held by insiders |
+| `held_pct_institutions` | `REAL` | Fraction held by institutions |
+
+Many fields will be NULL for micro-caps and ETFs where Yahoo Finance has limited coverage.
+
+### `dividends`
+Historical per-share dividend payments from Yahoo Finance. Fetched by `asx-data/scripts/fetch_dividends.py` monthly.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `symbol` | `TEXT NOT NULL` | ASX ticker |
+| `ex_date` | `INTEGER NOT NULL` | Unix timestamp of ex-dividend date |
+| `amount` | `REAL NOT NULL` | Per-share dividend amount in AUD |
+| `currency` | `TEXT NOT NULL DEFAULT 'AUD'` | Currency (always AUD for ASX stocks) |
+| PRIMARY KEY | `(symbol, ex_date)` | |
+
+Index: `idx_dividends_symbol` on `(symbol)`
+
+API endpoint: `GET /api/dividends/<symbol>` — returns `ex_date` in milliseconds for JS/Plotly.
+
+Note: franking percentage is not available from Yahoo Finance; would require scraping ASX.com.au.
+
 ### Market cap
 Computed live at query time: `symbols.shares × latest close from endofday`. No stale snapshot date.
 
