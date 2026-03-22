@@ -116,6 +116,51 @@ def _create_new_table(conn):
             held_pct_insiders           REAL,
             held_pct_institutions       REAL,
 
+            -- Description
+            business_summary            TEXT,
+
+            -- Company info
+            full_time_employees         INTEGER,
+            website                     TEXT,
+            sector                      TEXT,
+            country                     TEXT,
+            city                        TEXT,
+            long_name                   TEXT,
+
+            -- Technical reference
+            fifty_day_average           REAL,
+            two_hundred_day_average     REAL,
+            average_volume              INTEGER,
+            all_time_high               REAL,
+            all_time_low                REAL,
+
+            -- Governance risk scores (1=low risk, 10=high risk)
+            audit_risk                  INTEGER,
+            board_risk                  INTEGER,
+            compensation_risk           INTEGER,
+            shareholder_rights_risk     INTEGER,
+            overall_risk                INTEGER,
+
+            -- Per-share metrics
+            book_value                  REAL,
+            revenue_per_share           REAL,
+            total_cash_per_share        REAL,
+            eps_current_year            REAL,
+            price_eps_current_year      REAL,
+            trailing_peg_ratio          REAL,
+
+            -- Dates (unix timestamps)
+            earnings_timestamp          INTEGER,
+            last_fiscal_year_end        INTEGER,
+            next_fiscal_year_end        INTEGER,
+            most_recent_quarter         INTEGER,
+
+            -- Additional growth
+            earnings_quarterly_growth   REAL,
+
+            -- Dividend date
+            last_dividend_date          INTEGER,
+
             PRIMARY KEY (symbol, date)
         )
     ''')
@@ -130,6 +175,43 @@ def create_table(conn):
 
     if existing:
         cols = {r[1] for r in conn.execute('PRAGMA table_info(fundamentals)').fetchall()}
+        new_cols = [
+            ('business_summary',        'TEXT'),
+            ('full_time_employees',      'INTEGER'),
+            ('website',                  'TEXT'),
+            ('sector',                   'TEXT'),
+            ('country',                  'TEXT'),
+            ('city',                     'TEXT'),
+            ('long_name',                'TEXT'),
+            ('fifty_day_average',        'REAL'),
+            ('two_hundred_day_average',  'REAL'),
+            ('average_volume',           'INTEGER'),
+            ('all_time_high',            'REAL'),
+            ('all_time_low',             'REAL'),
+            ('audit_risk',               'INTEGER'),
+            ('board_risk',               'INTEGER'),
+            ('compensation_risk',        'INTEGER'),
+            ('shareholder_rights_risk',  'INTEGER'),
+            ('overall_risk',             'INTEGER'),
+            ('book_value',               'REAL'),
+            ('revenue_per_share',        'REAL'),
+            ('total_cash_per_share',     'REAL'),
+            ('eps_current_year',         'REAL'),
+            ('price_eps_current_year',   'REAL'),
+            ('trailing_peg_ratio',       'REAL'),
+            ('earnings_timestamp',       'INTEGER'),
+            ('last_fiscal_year_end',     'INTEGER'),
+            ('next_fiscal_year_end',     'INTEGER'),
+            ('most_recent_quarter',      'INTEGER'),
+            ('earnings_quarterly_growth','REAL'),
+            ('last_dividend_date',       'INTEGER'),
+        ]
+        added = [(c, t) for c, t in new_cols if c not in cols]
+        if added:
+            for col, coltype in added:
+                conn.execute(f'ALTER TABLE fundamentals ADD COLUMN {col} {coltype}')
+            conn.commit()
+            print(f'Added {len(added)} new column(s) to fundamentals.')
         if 'date' not in cols:
             print('Migrating fundamentals table to composite (symbol, date) primary key...')
             conn.execute('ALTER TABLE fundamentals RENAME TO fundamentals_v1')
@@ -245,6 +327,51 @@ def info_to_row(symbol, today, info):
         _float(info.get('floatShares')),
         _float(info.get('heldPercentInsiders')),
         _float(info.get('heldPercentInstitutions')),
+
+        # Description
+        info.get('longBusinessSummary') or None,
+
+        # Company info
+        _int(info.get('fullTimeEmployees')),
+        info.get('website') or None,
+        info.get('sector') or None,
+        info.get('country') or None,
+        info.get('city') or None,
+        info.get('longName') or None,
+
+        # Technical reference
+        _float(info.get('fiftyDayAverage')),
+        _float(info.get('twoHundredDayAverage')),
+        _int(info.get('averageVolume')),
+        _float(info.get('allTimeHigh')),
+        _float(info.get('allTimeLow')),
+
+        # Governance risk scores
+        _int(info.get('auditRisk')),
+        _int(info.get('boardRisk')),
+        _int(info.get('compensationRisk')),
+        _int(info.get('shareHolderRightsRisk')),
+        _int(info.get('overallRisk')),
+
+        # Per-share metrics
+        _float(info.get('bookValue')),
+        _float(info.get('revenuePerShare')),
+        _float(info.get('totalCashPerShare')),
+        _float(info.get('epsCurrentYear')),
+        _float(info.get('priceEpsCurrentYear')),
+        _float(info.get('trailingPegRatio')),
+
+        # Dates
+        _int(info.get('earningsTimestamp')),
+        _int(info.get('lastFiscalYearEnd')),
+        _int(info.get('nextFiscalYearEnd')),
+        _int(info.get('mostRecentQuarter')),
+
+        # Growth
+        _float(info.get('earningsQuarterlyGrowth')),
+
+        # Dividend date
+        _int(info.get('lastDividendDate')),
     )
 
 
@@ -258,7 +385,15 @@ INSERT_SQL = '''
         ?,?,?,?,?,?,      -- dividends (6)
         ?,?,?,?,?,?,?,    -- analyst (7)
         ?,?,              -- risk (2)
-        ?,?,?,?           -- ownership (4)
+        ?,?,?,?,          -- ownership (4)
+        ?,                -- description (1)
+        ?,?,?,?,?,?,      -- company info (6)
+        ?,?,?,?,?,        -- technical reference (5)
+        ?,?,?,?,?,        -- governance risk (5)
+        ?,?,?,?,?,?,      -- per-share metrics (6)
+        ?,?,?,?,          -- dates (4)
+        ?,                -- quarterly growth (1)
+        ?                 -- dividend date (1)
     )
 '''
 

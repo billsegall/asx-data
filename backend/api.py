@@ -421,7 +421,7 @@ def api_fundamentals_all():
                    f.market_cap, f.trailing_pe, f.forward_pe, f.price_to_book,
                    f.enterprise_to_ebitda, f.profit_margins, f.return_on_equity,
                    f.return_on_assets, f.revenue_growth, f.earnings_growth,
-                   f.dividend_yield, f.payout_ratio, f.debt_to_equity,
+                   f.dividend_yield, f.five_year_avg_div_yield, f.payout_ratio, f.debt_to_equity,
                    f.current_ratio, f.beta, f.week52_change,
                    f.recommendation_key, f.analyst_count,
                    f.target_mean_price, f.target_low_price, f.target_high_price,
@@ -441,7 +441,7 @@ def api_fundamentals_all():
     cols = [
         'symbol','name','industry','market_cap','trailing_pe','forward_pe','price_to_book',
         'enterprise_to_ebitda','profit_margins','return_on_equity','return_on_assets',
-        'revenue_growth','earnings_growth','dividend_yield','payout_ratio','debt_to_equity',
+        'revenue_growth','earnings_growth','dividend_yield','five_year_avg_div_yield','payout_ratio','debt_to_equity',
         'current_ratio','beta','week52_change','recommendation_key','analyst_count',
         'target_mean_price','target_low_price','target_high_price',
         'eps_trailing','eps_forward','total_revenue','ebitda','net_income',
