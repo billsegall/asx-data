@@ -411,6 +411,66 @@ def api_dividends(symbol):
     } for r in rows])
 
 
+@app.route('/api/commodities')
+def api_commodities():
+    """All commodities with their latest price."""
+    c = stocks.cursor()
+    try:
+        rows = c.execute('''
+            SELECT m.id, m.name, m.unit, p.price, p.date
+            FROM commodity_meta m
+            LEFT JOIN commodity_prices p ON p.id = m.id
+              AND p.date = (SELECT MAX(date) FROM commodity_prices WHERE id = m.id)
+            ORDER BY m.id
+        ''').fetchall()
+    except Exception:
+        return jsonify({'error': 'commodity tables not available'}), 503
+    return jsonify([{
+        'id':    r[0],
+        'name':  r[1],
+        'unit':  r[2],
+        'price': r[3],
+        'date':  r[4] * 1000 if r[4] else None,
+    } for r in rows])
+
+
+@app.route('/api/commodity/<commodity_id>')
+def api_commodity(commodity_id):
+    """Time-series prices for one commodity. Optional ?start=YYYYMMDD&end=YYYYMMDD."""
+    commodity_id = commodity_id.strip().upper()
+    c = stocks.cursor()
+    try:
+        meta = c.execute(
+            'SELECT id, name, unit FROM commodity_meta WHERE id = ?', (commodity_id,)
+        ).fetchone()
+        if not meta:
+            return jsonify({'error': f'Unknown commodity {commodity_id!r}'}), 404
+        start_ts = _parse_date_arg(request.args.get('start'), default_days_ago=365 * 5)
+        end_ts   = _parse_date_arg(request.args.get('end'),   default_days_ago=0)
+        rows = c.execute(
+            'SELECT date, price FROM commodity_prices WHERE id = ? AND date >= ? AND date <= ? ORDER BY date',
+            (commodity_id, start_ts, end_ts)
+        ).fetchall()
+    except Exception as e:
+        return jsonify({'error': 'commodity tables not available'}), 503
+    return jsonify({
+        'id':     meta[0],
+        'name':   meta[1],
+        'unit':   meta[2],
+        'prices': [[r[0] * 1000, r[1]] for r in rows],  # ms timestamps for JS/Plotly
+    })
+
+
+def _parse_date_arg(val, default_days_ago: int) -> int:
+    """Parse YYYYMMDD query param to Unix timestamp. Falls back to now - default_days_ago."""
+    if val:
+        try:
+            return int(datetime.datetime.strptime(val, '%Y%m%d').replace(tzinfo=datetime.timezone.utc).timestamp())
+        except ValueError:
+            pass
+    return int(time.time() - default_days_ago * 86400)
+
+
 @app.route('/api/fundamentals/all')
 def api_fundamentals_all():
     """All current symbols with key fundamentals columns, sorted by market cap desc. Used by screener."""
