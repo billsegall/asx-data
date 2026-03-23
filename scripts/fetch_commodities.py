@@ -21,6 +21,7 @@ import argparse, os, sqlite3, time, logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import pandas as pd
 import tradingeconomics as te
 
 SCRIPT_DIR = Path(__file__).parent
@@ -142,6 +143,9 @@ def fetch_yf(yf_symbol: str, start_date: str) -> list[tuple[int, float]]:
     df = yf.download(yf_symbol, start=start_date, auto_adjust=True, progress=False)
     if df is None or len(df) == 0:
         return []
+    # yfinance ≥0.2 returns MultiIndex columns: ('Close', 'GC=F') etc. Flatten to single level.
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     rows = []
     for dt, row in df.iterrows():
         try:
@@ -198,7 +202,11 @@ def run() -> None:
                 skip_total += 1
                 continue
 
-            if args.source == 'yf' and c['yf_symbol']:
+            if args.source == 'yf':
+                if not c['yf_symbol']:
+                    log.info(f'{cid}: no yfinance symbol, skipping')
+                    skip_total += 1
+                    continue
                 rows = fetch_yf(c['yf_symbol'], start)
                 source_label = f'yf({c["yf_symbol"]})'
             elif c['te_symbol']:
