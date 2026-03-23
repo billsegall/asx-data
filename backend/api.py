@@ -413,25 +413,62 @@ def api_dividends(symbol):
 
 @app.route('/api/commodities')
 def api_commodities():
-    """All commodities with their latest price."""
+    """All commodities with latest price, 24h change, 52-week range, and 30-day sparkline."""
     c = stocks.cursor()
     try:
+        yr_ago = int(time.time() - 365 * 86400)
         rows = c.execute('''
-            SELECT m.id, m.name, m.unit, p.price, p.date
+            SELECT
+                m.id, m.name, m.unit,
+                cur.price  AS price,
+                cur.date   AS date,
+                prev.price AS prev_price,
+                stats.high_52w,
+                stats.low_52w
             FROM commodity_meta m
-            LEFT JOIN commodity_prices p ON p.id = m.id
-              AND p.date = (SELECT MAX(date) FROM commodity_prices WHERE id = m.id)
+            LEFT JOIN commodity_prices cur ON cur.id = m.id
+                AND cur.date = (SELECT MAX(date) FROM commodity_prices WHERE id = m.id)
+            LEFT JOIN commodity_prices prev ON prev.id = m.id
+                AND prev.date = (SELECT MAX(date) FROM commodity_prices
+                                 WHERE id = m.id AND date < cur.date)
+            LEFT JOIN (
+                SELECT id, MAX(price) AS high_52w, MIN(price) AS low_52w
+                FROM commodity_prices WHERE date >= :yr_ago GROUP BY id
+            ) stats ON stats.id = m.id
             ORDER BY m.id
-        ''').fetchall()
+        ''', {'yr_ago': yr_ago}).fetchall()
+
+        # Fetch last 30 days of prices per commodity for sparklines
+        spark_cutoff = int(time.time() - 30 * 86400)
+        spark_rows = c.execute(
+            'SELECT id, date, price FROM commodity_prices WHERE date >= ? ORDER BY id, date',
+            (spark_cutoff,)
+        ).fetchall()
+        sparklines = {}
+        for r in spark_rows:
+            sparklines.setdefault(r[0], []).append([r[1] * 1000, r[2]])
+
     except Exception:
         return jsonify({'error': 'commodity tables not available'}), 503
-    return jsonify([{
-        'id':    r[0],
-        'name':  r[1],
-        'unit':  r[2],
-        'price': r[3],
-        'date':  r[4] * 1000 if r[4] else None,
-    } for r in rows])
+
+    result = []
+    for r in rows:
+        cid, name, unit, price, date, prev_price, high_52w, low_52w = r
+        change_pct = None
+        if price is not None and prev_price is not None and prev_price != 0:
+            change_pct = (price - prev_price) / prev_price * 100
+        result.append({
+            'id':         cid,
+            'name':       name,
+            'unit':       unit,
+            'price':      price,
+            'date':       date * 1000 if date else None,
+            'change_pct': round(change_pct, 2) if change_pct is not None else None,
+            'high_52w':   high_52w,
+            'low_52w':    low_52w,
+            'sparkline':  sparklines.get(cid, []),
+        })
+    return jsonify(result)
 
 
 @app.route('/api/commodity/<commodity_id>')
@@ -445,7 +482,7 @@ def api_commodity(commodity_id):
         ).fetchone()
         if not meta:
             return jsonify({'error': f'Unknown commodity {commodity_id!r}'}), 404
-        start_ts = _parse_date_arg(request.args.get('start'), default_days_ago=365 * 5)
+        start_ts = _parse_date_arg(request.args.get('start'), default_days_ago=365 * 100)
         end_ts   = _parse_date_arg(request.args.get('end'),   default_days_ago=0)
         rows = c.execute(
             'SELECT date, price FROM commodity_prices WHERE id = ? AND date >= ? AND date <= ? ORDER BY date',
