@@ -130,7 +130,7 @@ def main():
             time.sleep(args.delay)
 
     if rows_to_insert:
-        c.executemany('INSERT INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', rows_to_insert)
+        c.executemany('INSERT OR IGNORE INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', rows_to_insert)
 
     # Refresh endofmonth for all months touched by new data
     if affected_months:
