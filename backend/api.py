@@ -450,6 +450,94 @@ def api_dividends(symbol):
     } for r in rows])
 
 
+@app.route('/api/events/upcoming')
+def api_events_upcoming():
+    days = min(int(request.args.get('days', 90)), 365)
+    symbols_param = request.args.get('symbols', '')
+    c = stocks.cursor()
+    try:
+        if symbols_param:
+            syms = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+            placeholders = ','.join('?' * len(syms))
+            rows = c.execute(f'''
+                SELECT e.id, e.symbol, s.name, e.event_date, e.end_date,
+                       e.event_type, e.title, e.description, e.is_estimate
+                FROM events e JOIN symbols s ON e.symbol = s.symbol
+                WHERE e.symbol IN ({placeholders})
+                  AND e.event_date BETWEEN strftime('%s','now','-1 day')
+                  AND strftime('%s','now','+'||?||' days')
+                ORDER BY e.event_date
+            ''', (*syms, days)).fetchall()
+        else:
+            rows = c.execute('''
+                SELECT e.id, e.symbol, s.name, e.event_date, e.end_date,
+                       e.event_type, e.title, e.description, e.is_estimate
+                FROM events e JOIN symbols s ON e.symbol = s.symbol
+                WHERE e.event_date BETWEEN strftime('%s','now','-1 day')
+                  AND strftime('%s','now','+'||?||' days')
+                ORDER BY e.event_date
+            ''', (days,)).fetchall()
+    except Exception as e:
+        app.logger.warning('api_events_upcoming: %s', e)
+        return jsonify([])
+    cols = ['id','symbol','name','event_date','end_date','event_type','title','description','is_estimate']
+    return jsonify([dict(zip(cols, r)) for r in rows])
+
+
+@app.route('/api/events/<int:event_id>/ics')
+def api_event_ics(event_id):
+    c = stocks.cursor()
+    try:
+        row = c.execute(
+            'SELECT symbol, event_date, end_date, event_type, title, description, is_estimate FROM events WHERE id=?',
+            (event_id,)
+        ).fetchone()
+    except Exception:
+        return jsonify({'error': 'not found'}), 404
+    if not row:
+        return jsonify({'error': 'not found'}), 404
+    symbol, event_date, end_date, event_type, title, description, is_estimate = row
+    dt_start = datetime.datetime.fromtimestamp(event_date, tz=datetime.timezone.utc)
+    dt_end   = datetime.datetime.fromtimestamp(end_date or event_date, tz=datetime.timezone.utc)
+    dtstamp  = datetime.datetime.now(tz=datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    dtstart  = dt_start.strftime('%Y%m%d')
+    # DTEND for all-day events = day AFTER last day (RFC 5545 exclusive end)
+    dtend = (dt_end + datetime.timedelta(days=1)).strftime('%Y%m%d')
+    uid      = f'{symbol}-{event_type}-{dt_start.strftime("%Y%m%d")}@asx-toolkit'
+    status   = 'TENTATIVE' if is_estimate else 'CONFIRMED'
+    desc_str = (description or '').replace('\\', '\\\\').replace('\n', '\\n').replace(',', '\\,').replace(';', '\\;')
+    title_str = (title or '').replace('\\', '\\\\').replace('\n', '\\n').replace(',', '\\,').replace(';', '\\;')
+    ics = (
+        'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ASX Toolkit//Event Calendar//EN\r\n'
+        'CALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n'
+        'BEGIN:VEVENT\r\n'
+        f'UID:{uid}\r\nDTSTAMP:{dtstamp}\r\n'
+        f'DTSTART;VALUE=DATE:{dtstart}\r\nDTEND;VALUE=DATE:{dtend}\r\n'
+        f'SUMMARY:{title_str}\r\nDESCRIPTION:{desc_str}\r\nSTATUS:{status}\r\n'
+        'END:VEVENT\r\nEND:VCALENDAR\r\n'
+    )
+    return Response(ics, mimetype='text/calendar',
+                    headers={'Content-Disposition': f'attachment; filename="{symbol}-{event_type}.ics"'})
+
+
+@app.route('/api/events/<symbol>')
+def api_events_symbol(symbol):
+    symbol = symbol.strip().upper()
+    c = stocks.cursor()
+    try:
+        rows = c.execute('''
+            SELECT id, event_date, end_date, event_type, title, description, is_estimate
+            FROM events
+            WHERE symbol = ?
+              AND event_date >= strftime('%s','now','-7 days')
+            ORDER BY event_date
+        ''', (symbol,)).fetchall()
+    except Exception:
+        return jsonify([])
+    cols = ['id','event_date','end_date','event_type','title','description','is_estimate']
+    return jsonify([dict(zip(cols, r)) for r in rows])
+
+
 @app.route('/api/commodities')
 def api_commodities():
     """All commodities with latest price, 24h change, 52-week range, and 30-day sparkline."""
