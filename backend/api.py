@@ -532,6 +532,81 @@ def _parse_date_arg(val, default_days_ago: int) -> int:
     return int(time.time() - default_days_ago * 86400)
 
 
+def _compute_multi_year_metrics(c):
+    """Compute per-symbol multi-year derived metrics from financials_annual.
+    Returns dict: symbol -> {rev_cagr_3yr, rev_cagr_5yr, fcf_margin_3yr, roe_avg_3yr}
+    """
+    try:
+        fin_rows = c.execute('''
+            SELECT symbol, fiscal_year_end, total_revenue, net_income,
+                   free_cashflow, stockholders_equity
+            FROM financials_annual
+            WHERE total_revenue IS NOT NULL
+            ORDER BY symbol, fiscal_year_end
+        ''').fetchall()
+    except Exception:
+        return {}
+
+    from collections import defaultdict
+    by_sym = defaultdict(list)
+    for sym, fy, rev, ni, fcf, eq in fin_rows:
+        by_sym[sym].append((fy, rev, ni, fcf, eq))
+
+    def _cagr(v_new, v_old, n_years):
+        if v_new and v_old and v_old > 0 and v_new > 0 and n_years > 0:
+            return (v_new / v_old) ** (1.0 / n_years) - 1
+        return None
+
+    def _avg(vals):
+        vals = [v for v in vals if v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    derived = {}
+    for sym, rows in by_sym.items():
+        # rows sorted ascending by fiscal_year_end
+        latest = rows[-1]
+        rev_latest = latest[1]
+
+        # 3yr CAGR: latest vs row 3 positions back
+        rev_cagr_3yr = None
+        if len(rows) >= 3 and rows[-3][1]:
+            n3_row = rows[-3]
+            n_yrs = (datetime.date.fromisoformat(latest[0]) -
+                     datetime.date.fromisoformat(n3_row[0])).days / 365.25
+            rev_cagr_3yr = _cagr(rev_latest, n3_row[1], n_yrs)
+
+        # 5yr CAGR: latest vs oldest available with non-null revenue (minimum ~2.5 year span)
+        rev_cagr_5yr = None
+        if len(rows) >= 4:
+            # Iterate oldest→newest to find the earliest row with revenue
+            for old_row in rows[:-1]:
+                if old_row[1]:
+                    n_yrs = (datetime.date.fromisoformat(latest[0]) -
+                             datetime.date.fromisoformat(old_row[0])).days / 365.25
+                    if n_yrs >= 2.5:
+                        rev_cagr_5yr = _cagr(rev_latest, old_row[1], n_yrs)
+                    break
+
+        # FCF margin avg over last 3 years with revenue
+        last3 = rows[-3:]
+        fcf_margins = [fcf / rev for _, rev, _, fcf, _ in last3
+                       if rev and fcf is not None and rev != 0]
+        fcf_margin_3yr = _avg(fcf_margins)
+
+        # ROE avg over last 3 years (net_income / stockholders_equity)
+        roe_vals = [ni / eq for _, _, ni, _, eq in last3
+                    if ni is not None and eq and eq != 0]
+        roe_avg_3yr = _avg(roe_vals)
+
+        derived[sym] = {
+            'rev_cagr_3yr':   rev_cagr_3yr,
+            'rev_cagr_5yr':   rev_cagr_5yr,
+            'fcf_margin_3yr': fcf_margin_3yr,
+            'roe_avg_3yr':    roe_avg_3yr,
+        }
+    return derived
+
+
 @app.route('/api/fundamentals/all')
 def api_fundamentals_all():
     """All current symbols with key fundamentals columns, sorted by market cap desc. Used by screener."""
@@ -559,6 +634,9 @@ def api_fundamentals_all():
     except Exception as e:
         app.logger.warning('api_fundamentals_all: %s', e)
         return jsonify([])
+
+    derived = _compute_multi_year_metrics(c)
+
     cols = [
         'symbol','name','industry','market_cap','trailing_pe','forward_pe','price_to_book',
         'enterprise_to_ebitda','profit_margins','return_on_equity','return_on_assets',
@@ -569,7 +647,16 @@ def api_fundamentals_all():
         'total_cash','total_debt','free_cashflow',
         'shares_outstanding','held_pct_insiders','held_pct_institutions','fetched_at',
     ]
-    return jsonify([dict(zip(cols, r)) for r in rows])
+    result = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        sym_derived = derived.get(d['symbol'], {})
+        d['rev_cagr_3yr']   = sym_derived.get('rev_cagr_3yr')
+        d['rev_cagr_5yr']   = sym_derived.get('rev_cagr_5yr')
+        d['fcf_margin_3yr'] = sym_derived.get('fcf_margin_3yr')
+        d['roe_avg_3yr']    = sym_derived.get('roe_avg_3yr')
+        result.append(d)
+    return jsonify(result)
 
 
 def _serve_html(filename):
