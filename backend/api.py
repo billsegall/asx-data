@@ -392,6 +392,30 @@ def api_fundamentals(symbol):
     return jsonify(dict(zip(cols, row)))
 
 
+@app.route('/api/financials/<symbol>')
+def api_financials(symbol):
+    """Annual financial statements for one symbol, sorted oldest first."""
+    symbol = symbol.strip().upper()
+    c = stocks.cursor()
+    try:
+        rows = c.execute(
+            '''SELECT fiscal_year_end, total_revenue, gross_profit, operating_income,
+                      net_income, ebitda, basic_eps, operating_cashflow, free_cashflow,
+                      capital_expenditure, total_debt, stockholders_equity, cash
+               FROM financials_annual WHERE symbol = ?
+               ORDER BY fiscal_year_end''',
+            (symbol,)
+        ).fetchall()
+    except Exception:
+        return jsonify({'error': 'financials_annual table not available'}), 503
+    if not rows:
+        return jsonify([])
+    cols = ['fiscal_year_end','total_revenue','gross_profit','operating_income',
+            'net_income','ebitda','basic_eps','operating_cashflow','free_cashflow',
+            'capital_expenditure','total_debt','stockholders_equity','cash']
+    return jsonify([dict(zip(cols, r)) for r in rows])
+
+
 @app.route('/api/dividends/<symbol>')
 def api_dividends(symbol):
     """Historical dividend payments for one symbol, newest first."""

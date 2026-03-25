@@ -1,4 +1,4 @@
-ASX listed companies as at Mon Mar 02 10:47:08 AEDT 2026
+ASX listed companies as at Mon Mar 09 08:45:10 AEDT 2026
 
 Company name,ASX code,GICS industry group
 "1414 DEGREES LIMITED","14D","Capital Goods"
@@ -199,7 +199,6 @@ Company name,ASX code,GICS industry group
 "AUDALIA RESOURCES LIMITED","ACP","Materials"
 "AUDEARA LIMITED","AUA","Consumer Durables & Apparel"
 "AUDINATE GROUP LIMITED","AD8","Technology Hardware & Equipment"
-"AUDIO PIXELS HOLDINGS LIMITED","AKP","Consumer Durables & Apparel"
 "AUGUSTUS MINERALS LIMITED","AUG","Materials"
 "AUKING MINING LIMITED","AKN","Materials"
 "AUMAKE LIMITED.","AUK","Consumer Discretionary Distribution & Retail"
@@ -826,7 +825,6 @@ Company name,ASX code,GICS industry group
 "HALO TECHNOLOGIES HOLDINGS LTD","HAL","Financial Services"
 "HAMELIN GOLD LIMITED","HMG","Materials"
 "HAMMER METALS LIMITED","HMX","Materials"
-"HANCOCK & GORE LTD","HNG","Capital Goods"
 "HANSEN TECHNOLOGIES LIMITED","HSN","Software & Services"
 "HARANGA RESOURCES LIMITED.","HAR","Materials"
 "HARMONEY CORP LIMITED","HMY","Financial Services"
@@ -972,6 +970,7 @@ Company name,ASX code,GICS industry group
 "KALGOORLIE GOLD MINING LIMITED","KAL","Materials"
 "KALI METALS LIMITED","KM1","Materials"
 "KALINA POWER LIMITED","KPO","Utilities"
+"KAOKO METALS LIMITED","KAO","Class Pend"
 "KAPSTREAM INVESTMENT TRUST","KIT","Class Pend"
 "KAROON ENERGY LTD","KAR","Energy"
 "KATANA CAPITAL LIMITED","KAT","Not Applic"
@@ -1606,6 +1605,7 @@ Company name,ASX code,GICS industry group
 "SCENTRE GROUP TRUST 1","SCW","Equity Real Estate Investment Trusts (REITs)"
 "SCENTRE GROUP TRUST 1 AND SCENTRE GROUP TRUST 2","SCA","Not Applic"
 "SCHAFFER CORPORATION LIMITED","SFC","Automobiles & Components"
+"SCHOOLBLAZER LIMITED","SBZ","Capital Goods"
 "SCIDEV LTD","SDV","Materials"
 "SCORPION MINERALS LIMITED","SCN","Materials"
 "SCOUT SECURITY LIMITED","SCT","Consumer Services"
@@ -1720,7 +1720,6 @@ Company name,ASX code,GICS industry group
 "STRUCTURAL MONITORING SYSTEMS PLC","SMN","Technology Hardware & Equipment"
 "SULTAN RESOURCES LTD","SLZ","Materials"
 "SUMMERSET GROUP HOLDINGS LIMITED","SNZ","Health Care Equipment & Services"
-"SUMMIT MINERALS LIMITED","SUM","Materials"
 "SUN SILVER LIMITED","SS1","Materials"
 "SUNCORP GROUP LIMITED","SUN","Insurance"
 "SUNRISE ENERGY METALS LIMITED","SRL","Materials"
@@ -1790,7 +1789,6 @@ Company name,ASX code,GICS industry group
 "THORNEY TECHNOLOGIES LTD","TEK","Not Applic"
 "THRIVE TRIBE TECHNOLOGIES LIMITED","1TT","Software & Services"
 "TIAN AN AUSTRALIA LIMITED","TIA","Real Estate Management & Development"
-"TIGERS REALM COAL LIMITED","TIG","Materials"
 "TIMAH RESOURCES LIMITED","TML","Utilities"
 "TINYBEANS GROUP LTD","TNY","Media & Entertainment"
 "TISSUE REPAIR LTD","TRP","Pharmaceuticals, Biotechnology & Life Sciences"
@@ -1922,6 +1920,7 @@ Company name,ASX code,GICS industry group
 "WESTAR RESOURCES LIMITED","WSR","Materials"
 "WESTERN GOLD RESOURCES LIMITED.","WGR","Materials"
 "WESTERN MINES GROUP LTD","WMG","Materials"
+"WESTERN RIDGE RESOURCES LIMITED","WRX","Materials"
 "WESTERN YILGARN NL","WYX","Materials"
 "WESTFIELD UK & EUROPE FINANCE PLC","WEN","Not Applic"
 "WESTGOLD RESOURCES LIMITED.","WGX","Materials"
