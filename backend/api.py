@@ -416,6 +416,21 @@ def api_financials(symbol):
     return jsonify([dict(zip(cols, r)) for r in rows])
 
 
+@app.route('/api/shares/<symbol>')
+def api_shares(symbol):
+    """Annual shares-on-issue history for one symbol, oldest first."""
+    symbol = symbol.strip().upper()
+    c = stocks.cursor()
+    try:
+        rows = c.execute(
+            'SELECT year, shares FROM shares_history WHERE symbol = ? ORDER BY year',
+            (symbol,)
+        ).fetchall()
+    except Exception:
+        return jsonify([])
+    return jsonify([{'year': r[0], 'shares': r[1]} for r in rows])
+
+
 @app.route('/api/dividends/<symbol>')
 def api_dividends(symbol):
     """Historical dividend payments for one symbol, newest first."""
