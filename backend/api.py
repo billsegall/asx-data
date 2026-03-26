@@ -538,6 +538,40 @@ def api_events_symbol(symbol):
     return jsonify([dict(zip(cols, r)) for r in rows])
 
 
+_indices_cache = {'ts': 0, 'data': None}
+_INDICES_TTL   = 5 * 60  # 5 minutes
+
+_YF_INDICES = {
+    'XAO': '^AORD',
+    'XJO': '^AXJO',
+}
+
+@app.route('/api/live-indices')
+def api_live_indices():
+    """Live index prices from Yahoo Finance, cached for 5 minutes.
+    Returns dict keyed by Australian symbol (XAO, XJO)."""
+    global _indices_cache
+    now = time.time()
+    if now - _indices_cache['ts'] < _INDICES_TTL and _indices_cache['data'] is not None:
+        return jsonify(_indices_cache['data'])
+    result = {}
+    for asx_sym, yf_sym in _YF_INDICES.items():
+        try:
+            fi = yf.Ticker(yf_sym).fast_info
+            price      = fi.last_price
+            prev_close = fi.previous_close
+            if price is not None and prev_close:
+                change    = round(price - prev_close, 2)
+                change_pct = round((price - prev_close) / prev_close * 100, 2)
+            else:
+                change = change_pct = None
+            result[asx_sym] = {'price': price, 'change_1d': change, 'change_1d_pct': change_pct}
+        except Exception:
+            result[asx_sym] = {}
+    _indices_cache = {'ts': now, 'data': result}
+    return jsonify(result)
+
+
 @app.route('/api/commodities')
 def api_commodities():
     """All commodities with latest price, 24h change, 52-week range, and 30-day sparkline."""
