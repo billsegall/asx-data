@@ -22,7 +22,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import pandas as pd
-import tradingeconomics as te
 
 SCRIPT_DIR = Path(__file__).parent
 DEFAULT_DB  = SCRIPT_DIR.parent / 'stockdb' / 'stockdb.db'
@@ -113,6 +112,7 @@ def _te_ticker(te_symbol: str) -> str:
 
 def fetch_te(te_symbol: str, start_date: str) -> list[tuple[int, float]]:
     """Fetch from Trading Economics. Returns [(unix_ts, price), ...]."""
+    import tradingeconomics as te  # noqa: PLC0415
     ticker = _te_ticker(te_symbol)
     df = te.getHistoricalByTicker(ticker=ticker, start_date=start_date, output_type='df')
     if df is None or len(df) == 0:
@@ -170,8 +170,10 @@ def run() -> None:
     args = parser.parse_args()
 
     api_key = args.te_key or os.environ.get('TE_API_KEY', 'guest:guest')
-    te.login(api_key)
-    log.info(f'Logged in to Trading Economics (key: {"guest" if api_key == "guest:guest" else "****"})')
+    if args.source == 'te':
+        import tradingeconomics as te  # noqa: PLC0415
+        te.login(api_key)
+        log.info(f'Logged in to Trading Economics (key: {"guest" if api_key == "guest:guest" else "****"})')
 
     conn = sqlite3.connect(args.db)
     init_tables(conn)
