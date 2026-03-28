@@ -453,6 +453,7 @@ def api_dividends(symbol):
 @app.route('/api/events/upcoming')
 def api_events_upcoming():
     days = min(int(request.args.get('days', 90)), 365)
+    past = min(int(request.args.get('past', 1)), 30)   # days to look back (default 1)
     symbols_param = request.args.get('symbols', '')
     c = stocks.cursor()
     try:
@@ -464,19 +465,19 @@ def api_events_upcoming():
                        e.event_type, e.title, e.description, e.is_estimate
                 FROM events e JOIN symbols s ON e.symbol = s.symbol
                 WHERE e.symbol IN ({placeholders})
-                  AND e.event_date BETWEEN strftime('%s','now','-1 day')
+                  AND e.event_date BETWEEN strftime('%s','now','-'||?||' days')
                   AND strftime('%s','now','+'||?||' days')
                 ORDER BY e.event_date
-            ''', (*syms, days)).fetchall()
+            ''', (*syms, past, days)).fetchall()
         else:
             rows = c.execute('''
                 SELECT e.id, e.symbol, s.name, e.event_date, e.end_date,
                        e.event_type, e.title, e.description, e.is_estimate
                 FROM events e JOIN symbols s ON e.symbol = s.symbol
-                WHERE e.event_date BETWEEN strftime('%s','now','-1 day')
+                WHERE e.event_date BETWEEN strftime('%s','now','-'||?||' days')
                   AND strftime('%s','now','+'||?||' days')
                 ORDER BY e.event_date
-            ''', (days,)).fetchall()
+            ''', (past, days)).fetchall()
     except Exception as e:
         app.logger.warning('api_events_upcoming: %s', e)
         return jsonify([])
