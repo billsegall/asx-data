@@ -169,6 +169,50 @@ def main():
                  )''', (one_year_ago,))
     db.commit()
 
+    # Track consecutive fetch failures — only when the market was open (we got some data).
+    # Symbols that return nothing for 5+ consecutive trading days are reported to stderr.
+    if rows_to_insert:
+        c.execute('''CREATE TABLE IF NOT EXISTS eod_fetch_failures (
+            symbol            TEXT PRIMARY KEY,
+            consecutive_misses INTEGER NOT NULL DEFAULT 0,
+            first_miss_date   TEXT NOT NULL,
+            last_miss_date    TEXT NOT NULL
+        )''')
+        today_str = today.isoformat()
+        returned = {row[0] for row in rows_to_insert}
+        missed   = set(symbols) - returned
+
+        # Reset counters for symbols that returned data today
+        if returned:
+            ph = ','.join('?' * len(returned))
+            c.execute(f'DELETE FROM eod_fetch_failures WHERE symbol IN ({ph})',
+                      list(returned))
+
+        # Increment counters for symbols with no data today
+        for sym in missed:
+            c.execute('''
+                INSERT INTO eod_fetch_failures(symbol, consecutive_misses, first_miss_date, last_miss_date)
+                VALUES (?, 1, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    consecutive_misses = consecutive_misses + 1,
+                    last_miss_date     = excluded.last_miss_date
+            ''', (sym, today_str, today_str))
+
+        db.commit()
+
+        # Report any symbols at or above the threshold
+        MISS_THRESHOLD = 5
+        flagged = c.execute(
+            'SELECT symbol, consecutive_misses, first_miss_date FROM eod_fetch_failures'
+            ' WHERE consecutive_misses >= ? ORDER BY consecutive_misses DESC',
+            (MISS_THRESHOLD,)
+        ).fetchall()
+        if flagged:
+            print(f"\n{len(flagged)} symbol(s) with {MISS_THRESHOLD}+ consecutive fetch failures"
+                  " (possibly delisted):", file=sys.stderr)
+            for sym, misses, first in flagged:
+                print(f"  {sym}: {misses} consecutive misses (since {first})", file=sys.stderr)
+
     db.close()
 
     print(f"\nDone: {len(rows_to_insert)} rows inserted for {start_dt} → {today}")
