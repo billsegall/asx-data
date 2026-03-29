@@ -62,7 +62,7 @@ COMMODITIES = [
     {'id': 'NATURAL-GAS',  'name': 'Natural Gas',       'unit': 'USD/MMBtu',   'te_symbol': 'NG1:COM',          'yf_symbol': 'NG=F'},
     {'id': 'LNG',          'name': 'LNG (Japan Korea)', 'unit': 'USD/MMBtu',   'te_symbol': 'LNGJKMTF:COM',     'yf_symbol': None},
     # Other metals / minerals
-    {'id': 'URANIUM',      'name': 'Uranium',           'unit': 'USD/lb',      'te_symbol': 'URANIUM:COM',      'yf_symbol': 'UX=F'},
+    {'id': 'URANIUM',      'name': 'Uranium',           'unit': 'USD/lb',      'te_symbol': 'URANIUM:COM',      'yf_symbol': None},
     {'id': 'LITHIUM',      'name': 'Lithium',           'unit': 'USD/tonne',   'te_symbol': 'LITHIUM:COM',      'yf_symbol': None},
     # Agriculture
     {'id': 'WHEAT',        'name': 'Wheat',             'unit': 'USc/bushel',  'te_symbol': 'W1:COM',           'yf_symbol': 'ZW=F'},
@@ -79,6 +79,10 @@ def init_tables(conn: sqlite3.Connection) -> None:
         te_symbol TEXT,
         yf_symbol TEXT
     )''')
+    try:
+        conn.execute('ALTER TABLE commodity_meta ADD COLUMN te_no_access INTEGER NOT NULL DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.execute('''CREATE TABLE IF NOT EXISTS commodity_prices (
         id    TEXT    NOT NULL,
         date  INTEGER NOT NULL,
@@ -166,7 +170,8 @@ def run() -> None:
     parser.add_argument('--backfill', action='store_true',     help='Fetch full history from 2000-01-01')
     parser.add_argument('--symbol',   default=None,            help='Only fetch this commodity ID (e.g. GOLD)')
     parser.add_argument('--te-key',   default=None,            help='Trading Economics API key (overrides TE_API_KEY env var)')
-    parser.add_argument('--source',   choices=['te', 'yf'],    default='te', help='Data source (default: te)')
+    parser.add_argument('--source',       choices=['te', 'yf'], default='te', help='Data source (default: te)')
+    parser.add_argument('--reset-access', action='store_true',               help='Clear te_no_access flags and retry all commodities')
     args = parser.parse_args()
 
     api_key = args.te_key or os.environ.get('TE_API_KEY', 'guest:guest')
@@ -177,6 +182,18 @@ def run() -> None:
 
     conn = sqlite3.connect(args.db)
     init_tables(conn)
+
+    if args.reset_access:
+        conn.execute('UPDATE commodity_meta SET te_no_access = 0')
+        conn.commit()
+        log.info('Cleared te_no_access flags for all commodities')
+
+    # Load current no-access set from DB
+    no_access = {
+        row[0] for row in conn.execute(
+            'SELECT id FROM commodity_meta WHERE te_no_access = 1'
+        ).fetchall()
+    }
 
     commodities = [c for c in COMMODITIES if args.symbol is None or c['id'] == args.symbol]
     if not commodities:
@@ -212,9 +229,21 @@ def run() -> None:
                 rows = fetch_yf(c['yf_symbol'], start)
                 source_label = f'yf({c["yf_symbol"]})'
             elif c['te_symbol']:
+                if cid in no_access:
+                    log.info(f'{cid}: skipping — no TE access (run with --reset-access to retry)')
+                    skip_total += 1
+                    continue
                 rows = fetch_te(c['te_symbol'], start)
                 source_label = f'te({c["te_symbol"]})'
                 time.sleep(DELAY)
+                # If no rows returned from the start of history, TE likely has no data/access
+                if not rows and start == BACKFILL_START:
+                    conn.execute('UPDATE commodity_meta SET te_no_access = 1 WHERE id = ?', (cid,))
+                    conn.commit()
+                    no_access.add(cid)
+                    log.warning(f'{cid}: no data from TE since {BACKFILL_START} — marking as no-access')
+                    skip_total += 1
+                    continue
             elif c['yf_symbol']:
                 log.warning(f'{cid}: no TE symbol, falling back to yfinance')
                 rows = fetch_yf(c['yf_symbol'], start)
