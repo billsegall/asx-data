@@ -28,7 +28,8 @@ DEFAULT_DB  = SCRIPT_DIR.parent / 'stockdb' / 'stockdb.db'
 BACKFILL_START = '2000-01-01'
 DELAY = 1.2  # TE rate limit: 1 req/sec
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s',
+                    stream=__import__('sys').stdout)
 log = logging.getLogger(__name__)
 
 
