@@ -100,9 +100,18 @@ def fetch(db_path):
     )''')
 
     conn.executemany(
-        '''INSERT OR REPLACE INTO asx_options
-           (option_symbol, expiry, exercise, share_symbol, share_name, note, fetched_at)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))''',
+        '''INSERT INTO asx_options
+               (option_symbol, expiry, exercise, share_symbol, share_name, note, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(option_symbol) DO UPDATE SET
+               expiry       = excluded.expiry,
+               share_symbol = excluded.share_symbol,
+               share_name   = excluded.share_name,
+               fetched_at   = datetime('now'),
+               -- Preserve manually corrected exercise/note (marked with "(was ...)");
+               -- overwrite everything else with the freshly scraped values.
+               exercise = CASE WHEN note LIKE '%(was %)' THEN exercise ELSE excluded.exercise END,
+               note     = CASE WHEN note LIKE '%(was %)' THEN note     ELSE excluded.note     END''',
         rows
     )
     conn.commit()
