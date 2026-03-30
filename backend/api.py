@@ -359,7 +359,7 @@ def api_enrich():
 
 @app.route('/api/symbol/<symbol>')
 def api_symbol_info(symbol):
-    """Quick lookup: name, industry, mcap for a single symbol (used by stock page)."""
+    """Quick lookup: name, industry, mcap, shares, options for a single symbol (used by stock page)."""
     symbol = symbol.strip().upper()
     c = stocks.cursor()
     if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
@@ -372,7 +372,21 @@ def api_symbol_info(symbol):
         ).fetchone()
         if row:
             mcap = shares * row[0]
-    return jsonify({'name': name, 'industry': industry, 'mcap': millify(mcap) if mcap else None})
+    options = [
+        dict(zip(['option_symbol', 'expiry', 'exercise', 'note'], r))
+        for r in c.execute(
+            'SELECT option_symbol, expiry, exercise, note FROM asx_options'
+            ' WHERE share_symbol = ? ORDER BY expiry, exercise',
+            (symbol,)
+        ).fetchall()
+    ]
+    return jsonify({
+        'name': name,
+        'industry': industry,
+        'mcap': millify(mcap) if mcap else None,
+        'shares': millify(shares) if shares else None,
+        'options': options,
+    })
 
 
 @app.route('/api/fundamentals/<symbol>')
