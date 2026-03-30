@@ -359,9 +359,30 @@ def api_enrich():
 
 @app.route('/api/symbol/<symbol>')
 def api_symbol_info(symbol):
-    """Quick lookup: name, industry, mcap, shares, options for a single symbol (used by stock page)."""
+    """Quick lookup: name, industry, mcap, shares, options for a single symbol (used by stock page).
+    If the symbol is itself an ASX-listed option (in asx_options), returns is_option=True
+    with the option's metadata instead of the normal share fields.
+    """
     symbol = symbol.strip().upper()
     c = stocks.cursor()
+
+    # Check if this symbol is itself an ASX-listed option
+    opt_row = c.execute(
+        'SELECT share_symbol, share_name, expiry, exercise, note FROM asx_options WHERE option_symbol = ?',
+        (symbol,)
+    ).fetchone()
+    if opt_row:
+        share_symbol, share_name, expiry, exercise, note = opt_row
+        return jsonify({
+            'is_option': True,
+            'name': f'{share_name} Option' if share_name else f'{share_symbol} Option',
+            'underlying': share_symbol,
+            'expiry': expiry,
+            'exercise': exercise,
+            'note': note,
+            'industry': None, 'mcap': None, 'shares': None, 'options': [],
+        })
+
     if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
         abort(404)
     name, industry, shares = stocks.LookupSymbol(symbol)
@@ -381,6 +402,7 @@ def api_symbol_info(symbol):
         ).fetchall()
     ]
     return jsonify({
+        'is_option': False,
         'name': name,
         'industry': industry,
         'mcap': millify(mcap) if mcap else None,
