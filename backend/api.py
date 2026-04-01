@@ -323,11 +323,21 @@ def api_symbols():
     like    = '%' + q.upper() + '%'
     currency_filter = '' if include_all else 'AND current = 1'
     c.execute(f'''
-        SELECT symbol, name, current FROM symbols
-        WHERE (symbol LIKE ? OR upper(name) LIKE ?) {currency_filter}
-        ORDER BY CASE WHEN symbol LIKE ? THEN 0 ELSE 1 END, symbol
+        SELECT symbol, name, current FROM (
+            SELECT symbol, name, current,
+                   CASE WHEN symbol LIKE ? THEN 0 ELSE 1 END AS prio
+            FROM symbols
+            WHERE (symbol LIKE ? OR upper(name) LIKE ?) {currency_filter}
+            UNION ALL
+            SELECT option_symbol,
+                   share_name || ' option exp ' || expiry || ' @$' || CAST(exercise AS TEXT),
+                   1,
+                   CASE WHEN option_symbol LIKE ? THEN 0 ELSE 1 END
+            FROM asx_options
+            WHERE option_symbol LIKE ?
+        ) ORDER BY prio, symbol
         LIMIT 10
-    ''', (pattern, like, pattern))
+    ''', (pattern, pattern, like, pattern, pattern))
     return jsonify([{'symbol': r[0], 'name': r[1], 'current': bool(r[2])} for r in c.fetchall()])
 
 
