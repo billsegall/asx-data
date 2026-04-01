@@ -205,7 +205,7 @@ if __name__ == "__main__":
         # Insert all symbols (INSERT OR REPLACE handles incremental updates)
         for symbol, (name, industry) in d_symbols.items():
             try:
-                c.execute('insert or replace into symbols values (?, ?, ?, ?)',
+                c.execute('insert or replace into symbols values (?, ?, ?, ?, 1)',
                     (symbol, name, industry, d_shares.get(symbol, 0)))
             except Exception as error:
                 print("Insert into symbols failed", error, symbol)
@@ -389,7 +389,7 @@ if __name__ == "__main__":
         # what we can ignoring errors
         for k, v in d_shorts.items():
             try:
-                c.execute('insert into symbols values (?, ?, "Delisted", 0)', (k, v[0]))
+                c.execute('insert into symbols values (?, ?, "Delisted", 0, 0)', (k, v[0]))
             except Exception as e:
                 pass
 
