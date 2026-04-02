@@ -70,8 +70,10 @@ def run() -> None:
     if args.symbol:
         symbols = [args.symbol.strip().upper()]
     else:
+        # XAO is the ASX200 index — no dividends, skip it
+        EXCLUDE = {'XAO'}
         query = 'SELECT symbol FROM symbols' + ('' if args.all else ' WHERE current = 1')
-        symbols = [r['symbol'] for r in conn.execute(query).fetchall()]
+        symbols = [r['symbol'] for r in conn.execute(query).fetchall() if r['symbol'] not in EXCLUDE]
 
     log.info(f'Fetching dividends for {len(symbols)} symbol(s)')
     new_count = skip_count = error_count = 0

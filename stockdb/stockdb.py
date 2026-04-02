@@ -202,10 +202,15 @@ if __name__ == "__main__":
                 except Exception:
                     pass  # skip rows with missing/unparseable data
 
-        # Insert all symbols (INSERT OR REPLACE handles incremental updates)
+        # Insert all symbols — preserve current flag for existing rows
         for symbol, (name, industry) in d_symbols.items():
             try:
-                c.execute('insert or replace into symbols values (?, ?, ?, ?, 1)',
+                c.execute('''INSERT INTO symbols (symbol, name, industry, shares, current)
+                             VALUES (?, ?, ?, ?, 1)
+                             ON CONFLICT(symbol) DO UPDATE SET
+                                 name     = excluded.name,
+                                 industry = excluded.industry,
+                                 shares   = excluded.shares''',
                     (symbol, name, industry, d_shares.get(symbol, 0)))
             except Exception as error:
                 print("Insert into symbols failed", error, symbol)

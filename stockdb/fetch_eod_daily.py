@@ -201,12 +201,19 @@ def main():
 
         db.commit()
 
-        # Report any symbols at or above the threshold
+        # Report any symbols at or above the threshold, but skip symbols that
+        # traded within the last 7 days (illiquid stocks that just didn't trade today).
         MISS_THRESHOLD = 5
+        one_week_ago = time.time() - 7 * 24 * 3600
         flagged = c.execute(
-            'SELECT symbol, consecutive_misses, first_miss_date FROM eod_fetch_failures'
-            ' WHERE consecutive_misses >= ? ORDER BY consecutive_misses DESC',
-            (MISS_THRESHOLD,)
+            'SELECT f.symbol, f.consecutive_misses, f.first_miss_date'
+            ' FROM eod_fetch_failures f'
+            ' WHERE f.consecutive_misses >= ?'
+            ' AND NOT EXISTS ('
+            '  SELECT 1 FROM endofday e WHERE e.symbol = f.symbol AND e.date > ?'
+            ' )'
+            ' ORDER BY f.consecutive_misses DESC',
+            (MISS_THRESHOLD, one_week_ago)
         ).fetchall()
         if flagged:
             print(f"\n{len(flagged)} symbol(s) with {MISS_THRESHOLD}+ consecutive fetch failures"
