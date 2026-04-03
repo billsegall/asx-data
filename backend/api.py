@@ -496,6 +496,48 @@ def api_dividends(symbol):
     } for r in rows])
 
 
+@app.route('/api/events/range')
+def api_events_range():
+    """Return events between two absolute dates.
+    Params: from=YYYY-MM-DD, to=YYYY-MM-DD, symbols=A,B,C (optional)
+    """
+    import datetime as _dt
+    from_str = request.args.get('from', '')
+    to_str   = request.args.get('to',   '')
+    symbols_param = request.args.get('symbols', '')
+    try:
+        from_ts = int(_dt.datetime.strptime(from_str, '%Y-%m-%d').timestamp())
+        to_ts   = int(_dt.datetime.strptime(to_str,   '%Y-%m-%d').timestamp()) + 86399
+    except (ValueError, TypeError):
+        return jsonify({'error': 'from and to required (YYYY-MM-DD)'}), 400
+    c = stocks.cursor()
+    try:
+        if symbols_param:
+            syms = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+            placeholders = ','.join('?' * len(syms))
+            rows = c.execute(f'''
+                SELECT e.id, e.symbol, s.name, e.event_date, e.end_date,
+                       e.event_type, e.title, e.description, e.is_estimate
+                FROM events e JOIN symbols s ON e.symbol = s.symbol
+                WHERE e.symbol IN ({placeholders})
+                  AND e.event_date BETWEEN ? AND ?
+                ORDER BY e.event_date
+            ''', (*syms, from_ts, to_ts)).fetchall()
+        else:
+            rows = c.execute('''
+                SELECT e.id, e.symbol, s.name, e.event_date, e.end_date,
+                       e.event_type, e.title, e.description, e.is_estimate
+                FROM events e JOIN symbols s ON e.symbol = s.symbol
+                WHERE e.event_date BETWEEN ? AND ?
+                ORDER BY e.event_date
+            ''', (from_ts, to_ts)).fetchall()
+    except Exception as e:
+        app.logger.warning('api_events_range: %s', e)
+        return jsonify([])
+    cols = ['id','symbol','name','event_date','end_date','event_type','title','description','is_estimate']
+    return jsonify([dict(zip(cols, r)) for r in rows])
+
+
 @app.route('/api/events/upcoming')
 def api_events_upcoming():
     days = min(int(request.args.get('days', 90)), 365)
