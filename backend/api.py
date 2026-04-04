@@ -3,7 +3,7 @@
 # No user auth — internal network only.
 # Frontend calls this instead of importing stockdb directly.
 
-import bisect, datetime, json, math, os, sqlite3, threading, time
+import bisect, datetime, json, math, os, signal, sqlite3, threading, time
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import yfinance as yf
@@ -36,6 +36,14 @@ def _load_volume_config():
         return None
 
 volume_config = _load_volume_config()
+
+# Signal handler to reload volume config on SIGHUP
+def _reload_volume_config(signum, frame):
+    global volume_config
+    volume_config = _load_volume_config()
+    app.logger.info('Reloaded volume config')
+
+signal.signal(signal.SIGHUP, _reload_volume_config)
 
 
 def _migrate_and_refresh_currency():

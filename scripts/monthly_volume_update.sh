@@ -8,8 +8,8 @@ cd "$SCRIPT_DIR/.."
 echo "Recalculating volume brackets..."
 python3 scripts/recalculate_volume_brackets.py
 
-# Restart the backend service
-echo "Restarting backend service..."
-sudo systemctl restart asx-backend
+# Signal the backend to reload config
+echo "Signaling backend to reload volume config..."
+systemctl status asx-backend >/dev/null 2>&1 && sudo systemctl reload asx-backend || echo "Backend not running"
 
-echo "Volume brackets updated and backend restarted."
+echo "Volume brackets updated."
