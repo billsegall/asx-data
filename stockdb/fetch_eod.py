@@ -18,6 +18,7 @@ import argparse, csv, json, os, sys, time
 from datetime import date, timedelta
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
+from holidays import is_asx_closed
 
 BASE_URL  = 'https://api.eoddata.com'
 STOCKDB   = os.path.dirname(os.path.abspath(__file__))
@@ -105,6 +106,12 @@ def main():
     parser.add_argument('--to', dest='to_date',
                         help='End date YYYYMMDD (default: today)')
     args = parser.parse_args()
+
+    # Exit early if yesterday was a market holiday (nothing to fetch)
+    yesterday = date.today() - timedelta(days=1)
+    if is_asx_closed(yesterday):
+        print(f'Yesterday ({yesterday}) was a market holiday. Exiting.')
+        return
 
     key = api_key()
 
