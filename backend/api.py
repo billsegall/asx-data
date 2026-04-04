@@ -224,18 +224,20 @@ def _enrich_batch(symbols):
     try:
         c.execute(f'''
             SELECT symbol, trailing_pe, forward_pe, dividend_yield,
-                   recommendation_key, target_mean_price, beta
+                   recommendation_key, target_low_price, target_mean_price, target_high_price, beta
             FROM fundamentals
             WHERE symbol IN ({placeholders})
               AND (symbol, date) IN (SELECT symbol, MAX(date) FROM fundamentals GROUP BY symbol)
         ''', stale)
         for row in c.fetchall():
-            result[row[0]]['trailing_pe']    = row[1]
-            result[row[0]]['forward_pe']     = row[2]
-            result[row[0]]['div_yield']      = row[3]
-            result[row[0]]['recommendation'] = row[4]
-            result[row[0]]['target_price']   = row[5]
-            result[row[0]]['beta']           = row[6]
+            result[row[0]]['trailing_pe']      = row[1]
+            result[row[0]]['forward_pe']       = row[2]
+            result[row[0]]['div_yield']        = row[3]
+            result[row[0]]['recommendation']   = row[4]
+            result[row[0]]['target_low_price'] = row[5]
+            result[row[0]]['target_mean_price'] = row[6]
+            result[row[0]]['target_high_price'] = row[7]
+            result[row[0]]['beta']             = row[8]
     except Exception:
         pass  # fundamentals table may not exist yet
 
