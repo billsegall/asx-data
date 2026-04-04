@@ -6,6 +6,7 @@ Uses yfinance get_shares_full() which gives a daily time series of shares
 outstanding going back ~10 years. Stores annual year-end snapshots per symbol,
 giving a compact but informative view of buyback/dilution trends.
 
+Skips indices (e.g., XAO) which have no shares outstanding.
 Re-run safe: INSERT OR REPLACE upserts by (symbol, year).
 
 Usage:
@@ -85,6 +86,7 @@ def main():
         symbols = [r[0] for r in conn.execute(
             """SELECT s.symbol FROM symbols s
                WHERE s.current = 1
+               AND s.symbol NOT IN ('XAO')
                AND EXISTS (
                    SELECT 1 FROM endofday e
                    WHERE e.symbol = s.symbol
