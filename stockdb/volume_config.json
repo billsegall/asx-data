@@ -1,0 +1,35 @@
+{
+  "last_updated": "2026-04-04",
+  "brackets": [
+    {
+      "bucket": 1,
+      "label": "Low",
+      "max": 25661,
+      "description": "<$25.7K (60% of stocks)"
+    },
+    {
+      "bucket": 2,
+      "label": "Medium-Low",
+      "max": 54716,
+      "description": "$25.7K-$54.7K (10% of stocks)"
+    },
+    {
+      "bucket": 3,
+      "label": "Medium",
+      "max": 137687,
+      "description": "$54.7K-$137.7K (10% of stocks)"
+    },
+    {
+      "bucket": 4,
+      "label": "Medium-High",
+      "max": 609150,
+      "description": "$137.7K-$609.2K (10% of stocks)"
+    },
+    {
+      "bucket": 5,
+      "label": "High",
+      "max": null,
+      "description": ">$609.2K (10% of stocks)"
+    }
+  ]
+}

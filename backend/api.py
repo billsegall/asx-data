@@ -21,8 +21,21 @@ def add_cors(response):
 
 DATABASE     = os.environ.get('DATABASE', '../stockdb/stockdb.db')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', '')
+VOLUME_CONFIG_FILE = os.path.dirname(DATABASE) + '/volume_config.json'
 
 stocks = stockdb.StockDB(DATABASE, False)
+
+# Load volume config
+def _load_volume_config():
+    """Load volume bracket configuration from JSON file."""
+    try:
+        with open(VOLUME_CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception as e:
+        app.logger.warning('Failed to load volume config: %s', e)
+        return None
+
+volume_config = _load_volume_config()
 
 
 def _migrate_and_refresh_currency():
@@ -435,7 +448,29 @@ def api_fundamentals(symbol):
     if not row:
         return jsonify({'error': 'No fundamentals data'}), 404
     cols = [d[0] for d in c.description]
-    return jsonify(dict(zip(cols, row)))
+    result = dict(zip(cols, row))
+
+    # Add average daily volume in dollar terms and volume bucket
+    try:
+        avg_dollar_vol = c.execute(
+            'SELECT AVG(close * volume) FROM endofday WHERE symbol = ?', (symbol,)
+        ).fetchone()[0]
+        if avg_dollar_vol:
+            result['avg_daily_dollar_volume'] = avg_dollar_vol
+            # Determine volume bucket based on config file
+            if volume_config and 'brackets' in volume_config:
+                for bracket in volume_config['brackets']:
+                    max_val = bracket.get('max')
+                    if max_val is None or avg_dollar_vol < max_val:
+                        result['volume_bucket'] = bracket['bucket']
+                        break
+            else:
+                # Fallback if config not loaded
+                result['volume_bucket'] = 5
+    except Exception:
+        pass
+
+    return jsonify(result)
 
 
 @app.route('/api/financials/<symbol>')
