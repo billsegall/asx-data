@@ -10,8 +10,11 @@ Usage:
 """
 
 import argparse, datetime, math, sqlite3, sys, time
+from datetime import date, timedelta
 import yfinance as yf
 import pandas as pd
+
+from holidays import is_asx_closed
 
 
 def to_unix(d):
@@ -91,6 +94,12 @@ def main():
     parser.add_argument('--delay', type=float, default=0.1,
                         help='Seconds to sleep between symbols (default: 0.1)')
     args = parser.parse_args()
+
+    # Exit early if yesterday was a market holiday (nothing to check)
+    yesterday = date.today() - timedelta(days=1)
+    if is_asx_closed(yesterday):
+        print(f'Yesterday ({yesterday}) was a market holiday. Exiting.')
+        return
 
     db = sqlite3.connect(args.db)
     c = db.cursor()
