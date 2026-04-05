@@ -480,6 +480,22 @@ def api_fundamentals(symbol):
     except Exception:
         pass
 
+    # Check for consolidations in the last 12 months
+    try:
+        cutoff_ts = time.time() - 365 * 86400
+        consolidation = c.execute(
+            'SELECT date, description FROM corporate_events WHERE symbol = ? AND event_type = ? AND date >= ? ORDER BY date DESC LIMIT 1',
+            (symbol, 'consolidation', cutoff_ts)
+        ).fetchone()
+        if consolidation:
+            event_date, description = consolidation
+            result['recent_consolidation'] = {
+                'date': event_date,
+                'description': description or 'Stock consolidation'
+            }
+    except Exception:
+        pass
+
     return jsonify(result)
 
 
