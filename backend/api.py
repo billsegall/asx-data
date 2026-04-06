@@ -496,6 +496,32 @@ def api_fundamentals(symbol):
     except Exception:
         pass
 
+    # Check for trading suspension status from announcements database
+    try:
+        announcements_db = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                       'asx-announcements', 'announcements.db')
+        if os.path.exists(announcements_db):
+            ann_conn = sqlite3.connect(announcements_db, timeout=5)
+            ann_c = ann_conn.cursor()
+            # Get the most recent suspension/reinstatement announcement
+            suspension = ann_c.execute('''
+                SELECT suspension_type, announced_at FROM extracted_suspensions
+                WHERE ticker = ? ORDER BY announced_at DESC LIMIT 1
+            ''', (symbol,)).fetchone()
+            ann_conn.close()
+
+            if suspension:
+                suspension_type, announced_at = suspension
+                # Check if it's a reinstatement or an active suspension
+                is_suspended = suspension_type != 'reinstatement'
+                result['trading_suspension'] = {
+                    'is_suspended': is_suspended,
+                    'type': suspension_type,
+                    'announced_at': announced_at
+                }
+    except Exception:
+        pass
+
     return jsonify(result)
 
 
