@@ -54,11 +54,23 @@ def fetch_option_price(symbol: str, token: str) -> dict | None:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--db', default=str(DB_PATH))
-    parser.add_argument('--markit-token', default=os.environ.get('MARKIT_TOKEN'))
+    parser.add_argument('--markit-token', default=None)
     args = parser.parse_args()
 
-    if not args.markit_token:
-        log.error("MARKIT_TOKEN env var or --markit-token required")
+    # Get MARKIT_TOKEN from arg, env var, or asx-web .env
+    token = args.markit_token or os.environ.get('MARKIT_TOKEN')
+    if not token:
+        # Try to read from asx-web .env
+        env_file = Path(__file__).parent.parent.parent / "asx-web" / ".env"
+        if env_file.exists():
+            with open(env_file) as f:
+                for line in f:
+                    if line.startswith('MARKIT_TOKEN='):
+                        token = line.split('=', 1)[1].strip()
+                        break
+
+    if not token:
+        log.error("MARKIT_TOKEN not found in env var, --markit-token, or asx-web/.env")
         return 1
 
     db_path = Path(args.db)
@@ -88,7 +100,7 @@ def main():
     failed = []
 
     for option_symbol in options:
-        data = fetch_option_price(option_symbol, args.markit_token)
+        data = fetch_option_price(option_symbol, token)
         if not data or not data['price']:
             failed.append(option_symbol)
             continue
