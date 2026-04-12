@@ -367,15 +367,33 @@ def api_symbols():
 @app.route('/api/shorts')
 def api_shorts():
     c = stocks.cursor()
-    c.execute('''SELECT s.symbol, max(s.date), s.short, sym.name
+    # Get the two most recent dates so we can show change
+    c.execute('SELECT DISTINCT date FROM shorts ORDER BY date DESC LIMIT 2')
+    dates = [r[0] for r in c.fetchall()]
+    latest_date = dates[0] if dates else None
+    prev_date   = dates[1] if len(dates) > 1 else None
+
+    c.execute('''SELECT s.symbol, s.short, sym.name
                  FROM shorts s LEFT JOIN symbols sym ON s.symbol = sym.symbol
-                 WHERE length(s.symbol) = 3
-                 GROUP BY s.symbol ORDER BY s.date DESC, s.short DESC''')
-    rows = [{'symbol': r[0], 'date': date2human(r[1]), 'short': r[2], 'name': r[3] or ''} for r in c.fetchall()]
-    lc = stocks.cursor()
-    lc.execute('SELECT max(date) FROM shorts')
-    latest = lc.fetchone()[0]
-    return jsonify({'data': rows, 'latest_date': date2human(latest) if latest else None})
+                 WHERE s.date = ? AND length(s.symbol) = 3
+                 ORDER BY s.short DESC''', (latest_date,))
+    current = {r[0]: {'short': r[1], 'name': r[2] or ''} for r in c.fetchall()}
+
+    prev = {}
+    if prev_date:
+        c.execute('SELECT symbol, short FROM shorts WHERE date = ? AND length(symbol) = 3',
+                  (prev_date,))
+        prev = {r[0]: r[1] for r in c.fetchall()}
+
+    rows = [{'symbol': sym, 'short': v['short'], 'name': v['name'],
+             'prev_short': prev.get(sym)}
+            for sym, v in current.items()]
+
+    return jsonify({
+        'data': rows,
+        'latest_date': date2human(latest_date) if latest_date else None,
+        'prev_date':   date2human(prev_date)   if prev_date   else None,
+    })
 
 
 @app.route('/api/enrich', methods=['POST'])
@@ -761,7 +779,9 @@ def api_commodities():
                 cur.date   AS date,
                 prev.price AS prev_price,
                 stats.high_52w,
-                stats.low_52w
+                stats.low_52w,
+                stats.high_52w_date,
+                stats.low_52w_date
             FROM commodity_meta m
             LEFT JOIN commodity_prices cur ON cur.id = m.id
                 AND cur.date = (SELECT MAX(date) FROM commodity_prices WHERE id = m.id)
@@ -769,8 +789,13 @@ def api_commodities():
                 AND prev.date = (SELECT MAX(date) FROM commodity_prices
                                  WHERE id = m.id AND date < cur.date)
             LEFT JOIN (
-                SELECT id, MAX(price) AS high_52w, MIN(price) AS low_52w
-                FROM commodity_prices WHERE date >= :yr_ago GROUP BY id
+                SELECT
+                    id,
+                    MAX(price) AS high_52w,
+                    MIN(price) AS low_52w,
+                    (SELECT date FROM commodity_prices cp2 WHERE cp2.id = cp1.id AND cp2.date >= :yr_ago ORDER BY cp2.price DESC LIMIT 1) AS high_52w_date,
+                    (SELECT date FROM commodity_prices cp3 WHERE cp3.id = cp1.id AND cp3.date >= :yr_ago ORDER BY cp3.price ASC LIMIT 1) AS low_52w_date
+                FROM commodity_prices cp1 WHERE date >= :yr_ago GROUP BY id
             ) stats ON stats.id = m.id
             ORDER BY m.id
         ''', {'yr_ago': yr_ago}).fetchall()
@@ -790,7 +815,7 @@ def api_commodities():
 
     result = []
     for r in rows:
-        cid, name, unit, price, date, prev_price, high_52w, low_52w = r
+        cid, name, unit, price, date, prev_price, high_52w, low_52w, high_52w_date, low_52w_date = r
         change_pct = None
         if price is not None and prev_price is not None and prev_price != 0:
             change_pct = (price - prev_price) / prev_price * 100
@@ -803,6 +828,8 @@ def api_commodities():
             'change_pct': round(change_pct, 2) if change_pct is not None else None,
             'high_52w':   high_52w,
             'low_52w':    low_52w,
+            'high_52w_date': high_52w_date * 1000 if high_52w_date else None,
+            'low_52w_date':  low_52w_date * 1000 if low_52w_date else None,
             'sparkline':  sparklines.get(cid, []),
         })
     return jsonify(result)
