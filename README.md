@@ -68,3 +68,104 @@ Last trading day of each calendar month — used for efficient multi-period retu
 symbol | date | event_type | ratio | description
 ------ | ---- | ---------- | ----- | -----------
 BTR    | 1704067200 | consolidation | 0.1 | 1:10 Consolidation
+
+## Commodity prices
+
+Global commodity prices relevant to ASX mining and energy sectors. 22 commodities tracked via 4 data sources, updated via scheduled cron jobs.
+
+### commodity_meta
+id | name | unit | te_symbol | yf_symbol | metals_dev_key
+-- | ---- | ---- | --------- | --------- | ---------------
+GOLD | Gold | USD/troy oz | — | GC=F | —
+COPPER | Copper | USD/lb | copper | HG=F | —
+ALUMINIUM | Aluminium | USD/tonne | aluminum | — | ALUMINUM
+
+`metals_dev_key` stores the metals.dev API key name for commodities sourced from that API (used by `fetch_metals_dev.py`).
+
+### commodity_prices
+id | date | price
+-- | ---- | -----
+GOLD | 1775779200 | 4782.10
+LEAD | 1775964665 | 1919.30
+
+Unix timestamps for date; prices in commodity-specific units (see `commodity_meta.unit`).
+
+### Data sources
+
+| Source | Frequency | Commodities | Script |
+|--------|-----------|-------------|--------|
+| **yfinance** | Daily (weekdays 21:00 UTC) | Gold, Silver, Platinum, Palladium, WTI-Oil, Brent-Oil | `fetch_commodities.py --source yf` |
+| **Trading Economics** | Weekly (Wed 22:00 UTC) | Thermal Coal, Copper, Aluminium, Zinc, Nickel, Lead, Iron-Ore, Natural-Gas, Wheat, Corn, Soybeans (11 total) | `fetch_trading_economics.py --all` |
+| **metals.dev API** | Weekly (Sun 22:00 UTC) | Lead, Aluminium, Zinc, Nickel (free tier: 100 req/month) | `fetch_metals_dev.py --api-key $METALS_DEV_API_KEY --all` |
+| **Jupiter Mines** | Weekly (Sat 22:00 UTC) | Manganese (CNY/mtu, VAT-excluded) | `fetch_manganese.py` |
+
+**Total: 22 commodities** with no source duplication (each commodity sourced from best available API).
+
+### Fetch scripts
+
+#### `fetch_commodities.py --db <db> --source yf`
+Fetches yfinance OHLCV data. Default source for precious metals and oils.
+- Symbols: GC=F (gold), SI=F (silver), PL=F (platinum), PA=F (palladium), CL=F (WTI oil), BZ=F (Brent oil)
+- Incremental mode: skips already-fetched dates
+- No API key required
+
+#### `fetch_trading_economics.py --db <db> --all`
+Scrapes commodity prices from tradingeconomics.com. Supports 11 commodities with HTML parsing (BeautifulSoup).
+- Commodities: coal, copper, aluminum, zinc, nickel, lead, iron-ore, natural-gas, wheat, corn, soybeans
+- Note: oil and brent-oil not supported (pages require JavaScript rendering; use yfinance instead)
+- Regex patterns match multiple price formats: "trading at XXX", "fell to XXX", "USD/unit"
+- Incremental mode: skips duplicate (commodity_id, date) pairs
+- No API key required
+
+#### `fetch_metals_dev.py --db <db> --api-key <KEY> --all`
+Fetches industrial metal prices from metals.dev API.
+- Commodities: LEAD, ALUMINIUM, ZINC, NICKEL
+- Free tier: 100 requests/month (weekly fetch = ~4 requests/month, 96% quota headroom)
+- Incremental mode: skips duplicate (commodity_id, date) pairs
+- Requires: `METALS_DEV_API_KEY` environment variable or `--api-key` flag
+- API endpoint: `https://api.metals.dev/v1/latest?api_key=<KEY>`
+
+#### `fetch_manganese.py --db <db>`
+Scrapes manganese prices from Jupiter Mines (Shanghai Metals Market data).
+- Commodity: MANGANESE (CNY/mtu, VAT-excluded)
+- Converts VAT-included price by dividing by 1.13
+- HTML parsing extracts: price, date from "as reported by Shanghai Metals Market on DD Month YYYY"
+- Weekly fetch only (historical data sparse on source page)
+- No API key required
+
+### Cron schedule
+
+```bash
+# Daily commodity prices (yfinance) — weekdays 21:00 UTC (7am AEST next day)
+0 21 * * 1-5 python3 $DATA/scripts/fetch_commodities.py --db $STOCKDB/stockdb.db --source yf
+
+# Trading Economics commodities — weekly Wednesday 22:00 UTC (Thursday 8am AEST)
+0 22 * * 3 python3 $DATA/scripts/fetch_trading_economics.py --db $STOCKDB/stockdb.db --all
+
+# Manganese from Jupiter Mines — weekly Saturday 22:00 UTC (Sunday 8am AEST)
+0 22 * * 6 python3 $DATA/scripts/fetch_manganese.py --db $STOCKDB/stockdb.db
+
+# Industrial metals from metals.dev API — weekly Sunday 22:00 UTC (Monday 8am AEST)
+0 22 * * 0 python3 $DATA/scripts/fetch_metals_dev.py --db $STOCKDB/stockdb.db --api-key $METALS_DEV_API_KEY
+```
+
+**Why staggered?** Prevents timing conflicts and quota issues. metals.dev single request fetches all 4 metals efficiently.
+
+### Frontend display
+
+Commodity prices displayed on `/commodities` page (asx-web) with:
+- Latest price and 24h change percentage
+- 52-week high/low with dates (e.g., "Jan 29 — May 14")
+- 30-day sparkline chart
+- Dashboard pinning (localStorage-based user preferences)
+- Group filtering (Metals, Bulk, Energy, Agriculture)
+
+Detail chart at `/commodity/<id>` shows full historical price series with range selector.
+
+### Data quality notes
+
+- **yfinance fallback**: Used as primary source for precious metals (gold, silver) and oils (WTI, Brent) due to continuous high-quality data
+- **Duplication avoided**: COPPER also in Trading Economics; yfinance used as primary source to maintain historical consistency
+- **Bad data cleaned**: Removed incorrect yfinance contract prices for ALUMINIUM (511→3497), NICKEL (290→17275), ZINC (327→3331)
+- **VAT adjustments**: Manganese prices from Jupiter Mines include 13% VAT; script divides by 1.13 to get VAT-excluded value
+- **Date granularity**: Most sources provide daily prices; some (like manganese) provide weekly/sparse data only
