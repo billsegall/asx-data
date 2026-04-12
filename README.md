@@ -71,7 +71,7 @@ BTR    | 1704067200 | consolidation | 0.1 | 1:10 Consolidation
 
 ## Commodity prices
 
-Global commodity prices relevant to ASX mining and energy sectors. 22 commodities tracked via 4 data sources, updated via scheduled cron jobs.
+Global commodity prices relevant to ASX mining and energy sectors. 25 commodities tracked via 4 data sources, updated via scheduled cron jobs.
 
 ### commodity_meta
 id | name | unit | te_symbol | yf_symbol | metals_dev_key
@@ -94,12 +94,12 @@ Unix timestamps for date; prices in commodity-specific units (see `commodity_met
 
 | Source | Frequency | Commodities | Script |
 |--------|-----------|-------------|--------|
-| **yfinance** | Daily (weekdays 21:00 UTC) | Gold, Silver, Platinum, Palladium, WTI-Oil, Brent-Oil | `fetch_commodities.py --source yf` |
-| **Trading Economics** | Weekly (Wed 22:00 UTC) | Thermal Coal, Copper, Aluminium, Zinc, Nickel, Lead, Iron-Ore, Natural-Gas, Wheat, Corn, Soybeans (11 total) | `fetch_trading_economics.py --all` |
-| **metals.dev API** | Weekly (Sun 22:00 UTC) | Lead, Aluminium, Zinc, Nickel (free tier: 100 req/month) | `fetch_metals_dev.py --api-key $METALS_DEV_API_KEY --all` |
-| **Jupiter Mines** | Weekly (Sat 22:00 UTC) | Manganese (CNY/mtu, VAT-excluded) | `fetch_manganese.py` |
+| **yfinance** | Daily (weekdays 21:00 UTC) | Gold, Silver, Platinum, Palladium, WTI-Oil, Brent-Oil (6 total) | `fetch_commodities.py --source yf` |
+| **Trading Economics** | Weekly (Wed 22:00 UTC) | Thermal Coal, Coking Coal, Copper, Aluminium, Zinc, Nickel, Lead, Iron-Ore, Natural-Gas, LNG (Japan-Korea), Lithium, Uranium, Wheat, Corn, Soybeans (15 total) | `fetch_trading_economics.py --all` |
+| **metals.dev API** | Weekly (Sun 22:00 UTC) | Lead, Aluminium, Zinc, Nickel (4 total, free tier: 100 req/month) | `fetch_metals_dev.py --api-key $METALS_DEV_API_KEY --all` |
+| **Jupiter Mines** | Weekly (Sat 22:00 UTC) | Manganese (1 total, CNY/mtu, VAT-excluded) | `fetch_manganese.py` |
 
-**Total: 22 commodities** with no source duplication (each commodity sourced from best available API).
+**Total: 25 commodities** with no source duplication (each commodity sourced from best available API).
 
 ### Fetch scripts
 
@@ -110,8 +110,12 @@ Fetches yfinance OHLCV data. Default source for precious metals and oils.
 - No API key required
 
 #### `fetch_trading_economics.py --db <db> --all`
-Scrapes commodity prices from tradingeconomics.com. Supports 11 commodities with HTML parsing (BeautifulSoup).
-- Commodities: coal, copper, aluminum, zinc, nickel, lead, iron-ore, natural-gas, wheat, corn, soybeans
+Scrapes commodity prices from tradingeconomics.com. Supports 15 commodities with HTML parsing (BeautifulSoup).
+- **Bulk commodities**: coal (thermal), coking-coal, iron-ore
+- **Metals**: copper, aluminum, zinc, nickel, lead
+- **Energy**: natural-gas, liquefied-natural-gas-japan-korea (LNG JKM)
+- **Critical minerals**: lithium (CNY/tonne from Shanghai Metals Market), uranium
+- **Agriculture**: wheat, corn, soybeans
 - Note: oil and brent-oil not supported (pages require JavaScript rendering; use yfinance instead)
 - Regex patterns match multiple price formats: "trading at XXX", "fell to XXX", "USD/unit"
 - Incremental mode: skips duplicate (commodity_id, date) pairs
