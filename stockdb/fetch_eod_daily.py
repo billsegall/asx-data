@@ -70,8 +70,10 @@ def main():
     print(f"  {len(symbols)} symbols, fetching {start_dt} to {today}")
 
     end_dt = today + datetime.timedelta(days=1)  # yfinance end is exclusive
-    rows_to_insert = []
+    total_rows = 0
     affected_months = set()
+    returned_symbols = set()
+    missed_symbols = set(symbols)
 
     total_batches = (len(tickers) + BATCH_SIZE - 1) // BATCH_SIZE
     for i in range(0, len(tickers), BATCH_SIZE):
@@ -109,6 +111,7 @@ def main():
         stacked = stacked.dropna(subset=['Close'])
 
         batch_rows = 0
+        batch_inserts = []
         for (date_idx, ticker), row_data in stacked.iterrows():
             sym = reverse_map.get(str(ticker))
             if sym is None:
@@ -125,17 +128,24 @@ def main():
                 continue
             if any(math.isnan(x) for x in (o, h, lo, cl)):
                 continue
-            rows_to_insert.append((sym, ts, o, h, lo, cl, v))
+            batch_inserts.append((sym, ts, o, h, lo, cl, v))
             affected_months.add(d.strftime('%Y-%m'))
+            returned_symbols.add(sym)
             batch_rows += 1
+
+        # Commit batch immediately to reduce memory footprint
+        if batch_inserts:
+            c.executemany('INSERT OR IGNORE INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', batch_inserts)
+            db.commit()
+            total_rows += batch_rows
 
         print(f" {batch_rows} rows")
 
         if args.delay > 0 and (i + BATCH_SIZE) < len(tickers):
             time.sleep(args.delay)
 
-    if rows_to_insert:
-        c.executemany('INSERT OR IGNORE INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', rows_to_insert)
+    # Remove symbols that returned data from missed set
+    missed_symbols -= returned_symbols
 
     # Refresh endofmonth for all months touched by new data
     if affected_months:
@@ -177,7 +187,7 @@ def main():
 
     # Track consecutive fetch failures — only when the market was open (we got some data).
     # Symbols that return nothing for 5+ consecutive trading days are reported to stderr.
-    if rows_to_insert:
+    if total_rows > 0:
         c.execute('''CREATE TABLE IF NOT EXISTS eod_fetch_failures (
             symbol            TEXT PRIMARY KEY,
             consecutive_misses INTEGER NOT NULL DEFAULT 0,
@@ -185,17 +195,15 @@ def main():
             last_miss_date    TEXT NOT NULL
         )''')
         today_str = today.isoformat()
-        returned = {row[0] for row in rows_to_insert}
-        missed   = set(symbols) - returned
 
         # Reset counters for symbols that returned data today
-        if returned:
-            ph = ','.join('?' * len(returned))
+        if returned_symbols:
+            ph = ','.join('?' * len(returned_symbols))
             c.execute(f'DELETE FROM eod_fetch_failures WHERE symbol IN ({ph})',
-                      list(returned))
+                      list(returned_symbols))
 
         # Increment counters for symbols with no data today
-        for sym in missed:
+        for sym in missed_symbols:
             c.execute('''
                 INSERT INTO eod_fetch_failures(symbol, consecutive_misses, first_miss_date, last_miss_date)
                 VALUES (?, 1, ?, ?)
@@ -228,7 +236,7 @@ def main():
 
     db.close()
 
-    print(f"\nDone: {len(rows_to_insert)} rows inserted for {start_dt} → {today}")
+    print(f"\nDone: {total_rows} rows inserted for {start_dt} → {today}")
 
 
 if __name__ == '__main__':
