@@ -9,12 +9,17 @@ Usage:
     python fetch_splits.py --db ../stockdb/stockdb.db [--symbols BHP CBA BTR] [--delay 0.1]
 """
 
-import argparse, datetime, math, sqlite3, sys, time
+import argparse, datetime, math, sqlite3, sys, time, warnings, logging
 from datetime import date, timedelta
 import yfinance as yf
 import pandas as pd
 
 from holidays import is_asx_closed
+
+# Suppress yfinance HTTP warnings and logs
+warnings.filterwarnings('ignore')
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
 
 def to_unix(d):
@@ -35,6 +40,32 @@ def _ratio_to_type(ratio):
     if not math.isfinite(ratio) or ratio >= 1:
         return 'split'
     return 'consolidation'
+
+
+def _is_warrant_or_option(sym):
+    """Check if symbol is a warrant or option (not eligible for split tracking)."""
+    if len(sym) < 4:
+        return False
+    # Options: 4th character is 'O' (e.g., EXROB, GNMO)
+    if sym[3] == 'O':
+        return True
+    # Warrants: typically 6+ chars with warrant-specific suffixes or patterns
+    # Common ASX warrant suffixes: JOA, JOB, SOA, SOB, UOA, UOB, etc.
+    if len(sym) >= 6:
+        last_3 = sym[-3:]
+        warrant_patterns = {
+            'JOA', 'JOB', 'JOC', 'JOD',  # JELD warrants
+            'SOA', 'SOB', 'SOC', 'SOD',  # SENT warrants
+            'UOA', 'UOB', 'UOC', 'UOD',  # UNLI warrants
+            'VOA', 'VOB', 'VOC', 'VOD',  # Other letter warrants
+            'WOA', 'WOB', 'WOC', 'WOD',
+            'XOA', 'XOB', 'XOC', 'XOD',
+            'YOA', 'YOB', 'YOC', 'YOD',
+            'ZOA', 'ZOB', 'ZOC', 'ZOD',
+        }
+        if last_3 in warrant_patterns:
+            return True
+    return False
 
 
 def redownload_history(sym, db_cursor, db):
@@ -123,6 +154,9 @@ def main():
     else:
         symbols = sorted(current)
 
+    # Filter out warrants and options (not eligible for split tracking)
+    symbols = [s for s in symbols if not _is_warrant_or_option(s)]
+
     print(f"Checking {len(symbols)} symbols for split events...")
 
     new_events = 0
@@ -134,7 +168,11 @@ def main():
             ticker = yf.Ticker(yf_sym)
             splits = ticker.splits  # pandas Series: {date: ratio}
         except Exception as e:
-            print(f"  {sym}: error fetching splits: {e}")
+            # If Yahoo Finance returns 404, mark symbol as delisted so we don't retry it
+            if '404' in str(e) or 'Not Found' in str(e):
+                c.execute('UPDATE symbols SET current = 0, industry = ? WHERE symbol = ?',
+                         ('Delisted', sym))
+                db.commit()
             continue
 
         if splits is None or splits.empty:
