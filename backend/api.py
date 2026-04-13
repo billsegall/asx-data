@@ -2538,7 +2538,28 @@ def api_quotes():
 
     def fetch_one(sym):
         if _is_option(sym):
-            # Try Yahoo Finance first for options
+            # Try Markit API first for options (live data via authenticated endpoint)
+            markit_token = os.environ.get('MARKIT_TOKEN')
+            if markit_token:
+                try:
+                    resp = requests.get(
+                        f'https://asx.api.markitdigital.com/asx-research/1.0/companies/{sym}/header',
+                        headers={'Authorization': f'Bearer {markit_token}'},
+                        timeout=10,
+                    )
+                    if resp.ok:
+                        d = resp.json().get('data', {})
+                        if d.get('priceLast'):
+                            return sym, {
+                                'price':      round(float(d['priceLast']), 4),
+                                'prev_close': round(float(d['priceLast']) - float(d.get('priceChange', 0)), 4),
+                                'change':     round(float(d.get('priceChange', 0)), 4),
+                                'change_pct': round(float(d.get('priceChangePercent', 0)), 2),
+                                'source':     'markit',
+                            }
+                except Exception:
+                    pass
+            # Fallback to Yahoo Finance
             yf_ticker = f'{sym}.AX'
             try:
                 fi = yf.Ticker(yf_ticker).fast_info
@@ -2554,7 +2575,7 @@ def api_quotes():
                     }
             except Exception:
                 pass
-            # Fallback to ASX chart API
+            # Final fallback to ASX chart API
             try:
                 return sym, _fetch_asx(sym)
             except Exception:
@@ -2588,7 +2609,7 @@ def api_quotes():
 
 @app.route('/api/quote/<symbol>')
 def api_quote(symbol):
-    """Live price from Yahoo Finance or ASX (for options), cached for 5 minutes."""
+    """Live price from Markit (for options), Yahoo Finance, or ASX chart API, cached for 5 minutes."""
     symbol = symbol.strip().upper()
     now_ts = time.time()
     entry = _quote_cache.get(symbol)
@@ -2598,25 +2619,49 @@ def api_quote(symbol):
     # Check if this is an option (4th character is 'O')
     if len(symbol) >= 4 and symbol[3] == 'O':
         data = None
-        # Try Yahoo Finance first (may have more recent quotes)
-        try:
-            yf_ticker = f'{symbol}.AX'
-            fi = yf.Ticker(yf_ticker).fast_info
-            price = fi.last_price
-            prev  = fi.previous_close
-            if price:
-                data = {
-                    'symbol':     symbol,
-                    'price':      round(float(price), 4),
-                    'prev_close': round(float(prev), 4) if prev else None,
-                    'change':     round(float(price - prev), 4) if prev else None,
-                    'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
-                    'source':     'yf',
-                }
-        except Exception:
-            pass
+        # Try Markit API first for options (live data via authenticated endpoint)
+        markit_token = os.environ.get('MARKIT_TOKEN')
+        if markit_token:
+            try:
+                resp = requests.get(
+                    f'https://asx.api.markitdigital.com/asx-research/1.0/companies/{symbol}/header',
+                    headers={'Authorization': f'Bearer {markit_token}'},
+                    timeout=10,
+                )
+                if resp.ok:
+                    d = resp.json().get('data', {})
+                    if d.get('priceLast'):
+                        data = {
+                            'symbol':     symbol,
+                            'price':      round(float(d['priceLast']), 4),
+                            'prev_close': round(float(d['priceLast']) - float(d.get('priceChange', 0)), 4),
+                            'change':     round(float(d.get('priceChange', 0)), 4),
+                            'change_pct': round(float(d.get('priceChangePercent', 0)), 2),
+                            'source':     'markit',
+                        }
+            except Exception:
+                pass
 
-        # Fallback to ASX chart API if Yahoo Finance doesn't have data
+        # Fallback to Yahoo Finance if Markit doesn't have data
+        if not data:
+            try:
+                yf_ticker = f'{symbol}.AX'
+                fi = yf.Ticker(yf_ticker).fast_info
+                price = fi.last_price
+                prev  = fi.previous_close
+                if price:
+                    data = {
+                        'symbol':     symbol,
+                        'price':      round(float(price), 4),
+                        'prev_close': round(float(prev), 4) if prev else None,
+                        'change':     round(float(price - prev), 4) if prev else None,
+                        'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
+                        'source':     'yf',
+                    }
+            except Exception:
+                pass
+
+        # Fallback to ASX chart API if neither Markit nor Yahoo Finance have data
         if not data:
             try:
                 url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={symbol}&complete=true'
