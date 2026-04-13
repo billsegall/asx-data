@@ -2571,12 +2571,35 @@ def api_quotes():
 
 @app.route('/api/quote/<symbol>')
 def api_quote(symbol):
-    """Live price from Yahoo Finance, cached for 5 minutes."""
+    """Live price from Yahoo Finance or ASX (for options), cached for 5 minutes."""
     symbol = symbol.strip().upper()
     now_ts = time.time()
     entry = _quote_cache.get(symbol)
     if entry and now_ts - entry[0] < _QUOTE_TTL:
         return jsonify(entry[1])
+
+    # Check if this is an option (4th character is 'O')
+    if len(symbol) >= 4 and symbol[3] == 'O':
+        try:
+            url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={symbol}&complete=true'
+            resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            rows = resp.json()
+            if rows and isinstance(rows, list) and len(rows) >= 1:
+                price = float(rows[-1][4])
+                prev  = float(rows[-2][4]) if len(rows) >= 2 else None
+                data = {
+                    'symbol':     symbol,
+                    'price':      round(price, 4),
+                    'prev_close': round(prev, 4) if prev else None,
+                    'change':     round(price - prev, 4) if prev else None,
+                    'change_pct': round((price - prev) / prev * 100, 2) if prev else None,
+                    'source':     'asx',
+                }
+                _quote_cache[symbol] = (now_ts, data)
+                return jsonify(data)
+        except Exception:
+            pass
+        abort(503)
 
     yf_ticker = '^AORD' if symbol == 'XAO' else f'{symbol}.AX'
     try:
