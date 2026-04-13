@@ -9,9 +9,14 @@ Re-run safe: deletes rows >= start_date before inserting, so running twice
 on the same day produces the same result.
 """
 
-import argparse, datetime, math, sqlite3, sys, time
+import argparse, datetime, math, sqlite3, sys, time, warnings, logging
 import yfinance as yf
 import pandas as pd
+
+# Suppress yfinance HTTP warnings and logs
+warnings.filterwarnings('ignore')
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 
 BATCH_DELAY = 150  # seconds between batches; ~1 hr total for ~23 batches
 
