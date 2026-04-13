@@ -2538,6 +2538,23 @@ def api_quotes():
 
     def fetch_one(sym):
         if _is_option(sym):
+            # Try Yahoo Finance first for options
+            yf_ticker = f'{sym}.AX'
+            try:
+                fi = yf.Ticker(yf_ticker).fast_info
+                price = fi.last_price
+                prev  = fi.previous_close
+                if price:
+                    return sym, {
+                        'price':      round(float(price), 4),
+                        'prev_close': round(float(prev), 4) if prev else None,
+                        'change':     round(float(price - prev), 4) if prev else None,
+                        'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
+                        'source':     'yf',
+                    }
+            except Exception:
+                pass
+            # Fallback to ASX chart API
             try:
                 return sym, _fetch_asx(sym)
             except Exception:
@@ -2580,25 +2597,48 @@ def api_quote(symbol):
 
     # Check if this is an option (4th character is 'O')
     if len(symbol) >= 4 and symbol[3] == 'O':
+        data = None
+        # Try Yahoo Finance first (may have more recent quotes)
         try:
-            url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={symbol}&complete=true'
-            resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-            rows = resp.json()
-            if rows and isinstance(rows, list) and len(rows) >= 1:
-                price = float(rows[-1][4])
-                prev  = float(rows[-2][4]) if len(rows) >= 2 else None
+            yf_ticker = f'{symbol}.AX'
+            fi = yf.Ticker(yf_ticker).fast_info
+            price = fi.last_price
+            prev  = fi.previous_close
+            if price:
                 data = {
                     'symbol':     symbol,
-                    'price':      round(price, 4),
-                    'prev_close': round(prev, 4) if prev else None,
-                    'change':     round(price - prev, 4) if prev else None,
-                    'change_pct': round((price - prev) / prev * 100, 2) if prev else None,
-                    'source':     'asx',
+                    'price':      round(float(price), 4),
+                    'prev_close': round(float(prev), 4) if prev else None,
+                    'change':     round(float(price - prev), 4) if prev else None,
+                    'change_pct': round(float((price - prev) / prev * 100), 2) if prev else None,
+                    'source':     'yf',
                 }
-                _quote_cache[symbol] = (now_ts, data)
-                return jsonify(data)
         except Exception:
             pass
+
+        # Fallback to ASX chart API if Yahoo Finance doesn't have data
+        if not data:
+            try:
+                url = f'https://www.asx.com.au/asx/1/chart/highcharts?asx_code={symbol}&complete=true'
+                resp = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+                rows = resp.json()
+                if rows and isinstance(rows, list) and len(rows) >= 1:
+                    price = float(rows[-1][4])
+                    prev  = float(rows[-2][4]) if len(rows) >= 2 else None
+                    data = {
+                        'symbol':     symbol,
+                        'price':      round(price, 4),
+                        'prev_close': round(prev, 4) if prev else None,
+                        'change':     round(price - prev, 4) if prev else None,
+                        'change_pct': round((price - prev) / prev * 100, 2) if prev else None,
+                        'source':     'asx',
+                    }
+            except Exception:
+                pass
+
+        if data:
+            _quote_cache[symbol] = (now_ts, data)
+            return jsonify(data)
         abort(503)
 
     yf_ticker = '^AORD' if symbol == 'XAO' else f'{symbol}.AX'
