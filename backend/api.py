@@ -386,7 +386,7 @@ def api_shorts():
         prev = {r[0]: r[1] for r in c.fetchall()}
 
     rows = [{'symbol': sym, 'short': v['short'], 'name': v['name'],
-             'prev_short': prev.get(sym)}
+             'prev_short': prev.get(sym), 'date': date2human(latest_date) if latest_date else None}
             for sym, v in current.items()]
 
     return jsonify({
