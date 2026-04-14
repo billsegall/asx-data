@@ -96,8 +96,10 @@ class StockDB:
         print("Creating shorts indexes...")
         c.execute('drop index if exists idx_shorts_symbol_date')
         c.execute('drop index if exists idx_shorts_3char_peak')
+        c.execute('drop index if exists idx_shorts_date')
         c.execute('create index idx_shorts_symbol_date on shorts(symbol, date)')
         c.execute('create index idx_shorts_3char_peak on shorts(symbol, short desc) where length(symbol) = 3')
+        c.execute('create index idx_shorts_date on shorts(date)')
         c.close()
 
     def CreateIndexesEOD(self):
