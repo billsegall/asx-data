@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-fetch_options.py — Fetch ASX options list from rosser.com.au and store in stockdb.db.
+fetch_options.py — Fetch ASX options list and store in stockdb.db.
 
-⚠️  CURRENTLY BLOCKED by reCAPTCHA:
-The only free public source (rosser.com.au) uses reCAPTCHA which prevents automated access.
+⚠️  CURRENTLY INACTIVE:
+No public data source provides ASX options data with automated access.
 The ASX does not provide a public API for options data.
-This script will continue to return 0 options until the reCAPTCHA issue is resolved.
+This script is kept for future use if a data source becomes available.
 
 See Database.md → Known Limitations → Options Data Limitation for details.
-
-Uses Playwright to handle JavaScript-rendered content on the rosser.com.au options page.
 
 Usage:
   python3 fetch_options.py [--db /path/to/stockdb.db]

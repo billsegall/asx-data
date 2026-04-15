@@ -277,7 +277,7 @@ Contract notes are parsed by the CMC/generic parser in `asx.py` and stored here 
 | `note` | `TEXT` | Additional info from ASX |
 | `fetched_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | When last fetched |
 
-**Status:** This table is currently empty. The source (rosser.com.au) uses reCAPTCHA which blocks automated access. No public ASX API exists for options data. See [options data limitation](#options-data-limitation) below.
+**Status:** This table is currently empty. No public data source for ASX options is available. See [options data limitation](#options-data-limitation) below.
 
 ### `symbol_changes`
 | Column | Type | Notes |
@@ -351,13 +351,13 @@ PDFs stored at `asx-announcements/pdfs/YYYY/YYYY-MM/YYYY-MM-DD/<ids_id>.pdf`.
 
 The `asx_options` table is currently empty because:
 
-1. **Source blocked by reCAPTCHA**: rosser.com.au (the only free public source) uses reCAPTCHA which blocks automated access
-2. **No public ASX API**: The ASX does not provide a public API for options data; only subscription-based services available
-3. **Paid alternatives require subscription**: WebLink, EODHD, and other data vendors offer options data but with paid subscriptions
+1. **No public data source**: No freely accessible source provides ASX options data with automated access
+2. **No public ASX API**: The ASX does not provide a public API for options data
+3. **Paid alternatives only**: Third-party data vendors (WebLink, EODHD, etc.) require paid subscriptions
 
-**Workarounds** (in order of feasibility):
-- Contact rosser.com.au or ASX requesting API access for data providers
-- Manually download the options list periodically from rosser.com.au and import as CSV
-- Subscribe to a third-party data vendor (costs vary)
+**Possible solutions**:
+- Contact ASX requesting API access for options data
+- Manually import options data periodically
+- Subscribe to a third-party data vendor
 
 **Impact**: Options charts and data will not display on the web frontend until this is resolved. The underlying stock data is unaffected.

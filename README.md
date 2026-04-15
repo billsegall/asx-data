@@ -179,17 +179,17 @@ Detail chart at `/commodity/<id>` shows full historical price series with range 
 ### ASX options data
 
 Options data is **not currently available** due to:
-- **rosser.com.au blocked by reCAPTCHA** — the only free public source uses reCAPTCHA which prevents automated access
+- **No public data source** — no freely accessible source provides ASX options data with automated access
 - **No public ASX API** — the ASX does not provide a public API for options
-- **Paid alternatives only** — third-party vendors (WebLink, EODHD) require subscriptions
+- **Paid alternatives only** — third-party vendors (WebLink, EODHD, etc.) require subscriptions
 
 This affects:
 - Options charts on `/stock/<symbol>` pages (e.g., `/stock/GNMO`)
 - EOD price updates for options
 
-**Potential solutions**:
-1. Contact ASX or rosser.com.au requesting API access for data providers
-2. Manually download options list periodically and import as CSV
+**Possible solutions**:
+1. Contact ASX requesting API access for options data
+2. Manually import options data periodically
 3. Subscribe to a third-party data vendor
 
 See `Database.md` → Known Limitations → Options Data Limitation for details.
