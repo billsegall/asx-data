@@ -277,7 +277,7 @@ Contract notes are parsed by the CMC/generic parser in `asx.py` and stored here 
 | `note` | `TEXT` | Additional info from ASX |
 | `fetched_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | When last fetched |
 
-Populated by `asx-data/scripts/fetch_options.py` and cached in `users.db` for fast page loads.
+**Status:** This table is currently empty. The source (rosser.com.au) uses reCAPTCHA which blocks automated access. No public ASX API exists for options data. See [options data limitation](#options-data-limitation) below.
 
 ### `symbol_changes`
 | Column | Type | Notes |
@@ -342,3 +342,22 @@ The main web app proxies announcement requests to the announcements server via H
 | `downloaded_at` | `TEXT` | ISO 8601 datetime of download |
 
 PDFs stored at `asx-announcements/pdfs/YYYY/YYYY-MM/YYYY-MM-DD/<ids_id>.pdf`.
+
+---
+
+## Known Limitations
+
+### Options Data Limitation
+
+The `asx_options` table is currently empty because:
+
+1. **Source blocked by reCAPTCHA**: rosser.com.au (the only free public source) uses reCAPTCHA which blocks automated access
+2. **No public ASX API**: The ASX does not provide a public API for options data; only subscription-based services available
+3. **Paid alternatives require subscription**: WebLink, EODHD, and other data vendors offer options data but with paid subscriptions
+
+**Workarounds** (in order of feasibility):
+- Contact rosser.com.au or ASX requesting API access for data providers
+- Manually download the options list periodically from rosser.com.au and import as CSV
+- Subscribe to a third-party data vendor (costs vary)
+
+**Impact**: Options charts and data will not display on the web frontend until this is resolved. The underlying stock data is unaffected.

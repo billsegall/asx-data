@@ -173,3 +173,23 @@ Detail chart at `/commodity/<id>` shows full historical price series with range 
 - **Bad data cleaned**: Removed incorrect yfinance contract prices for ALUMINIUM (511→3497), NICKEL (290→17275), ZINC (327→3331)
 - **VAT adjustments**: Manganese prices from Jupiter Mines include 13% VAT; script divides by 1.13 to get VAT-excluded value
 - **Date granularity**: Most sources provide daily prices; some (like manganese) provide weekly/sparse data only
+
+## Known Limitations
+
+### ASX options data
+
+Options data is **not currently available** due to:
+- **rosser.com.au blocked by reCAPTCHA** — the only free public source uses reCAPTCHA which prevents automated access
+- **No public ASX API** — the ASX does not provide a public API for options
+- **Paid alternatives only** — third-party vendors (WebLink, EODHD) require subscriptions
+
+This affects:
+- Options charts on `/stock/<symbol>` pages (e.g., `/stock/GNMO`)
+- EOD price updates for options
+
+**Potential solutions**:
+1. Contact ASX or rosser.com.au requesting API access for data providers
+2. Manually download options list periodically and import as CSV
+3. Subscribe to a third-party data vendor
+
+See `Database.md` → Known Limitations → Options Data Limitation for details.

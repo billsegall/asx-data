@@ -2,6 +2,15 @@
 """
 fetch_options.py — Fetch ASX options list from rosser.com.au and store in stockdb.db.
 
+⚠️  CURRENTLY BLOCKED by reCAPTCHA:
+The only free public source (rosser.com.au) uses reCAPTCHA which prevents automated access.
+The ASX does not provide a public API for options data.
+This script will continue to return 0 options until the reCAPTCHA issue is resolved.
+
+See Database.md → Known Limitations → Options Data Limitation for details.
+
+Uses Playwright to handle JavaScript-rendered content on the rosser.com.au options page.
+
 Usage:
   python3 fetch_options.py [--db /path/to/stockdb.db]
 
@@ -14,7 +23,7 @@ Moved from asx-web; now writes to stockdb.db (was users.db).
 import argparse
 import os
 import sqlite3
-import urllib.request
+from pathlib import Path
 from html.parser import HTMLParser
 
 URL = 'https://rosser.com.au/options.htm'
@@ -61,9 +70,24 @@ class OptionsParser(HTMLParser):
 
 def fetch(db_path):
     print(f'Fetching {URL}...')
-    req = urllib.request.Request(URL, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        html = resp.read().decode('utf-8', errors='replace')
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("ERROR: playwright not installed. Install with: pip install playwright")
+        print("Then run: playwright install")
+        return 1
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(URL, wait_until='networkidle', timeout=30000)
+            html = page.content()
+            browser.close()
+    except Exception as e:
+        print(f"ERROR fetching page: {e}")
+        return 1
 
     parser = OptionsParser()
     parser.feed(html)
@@ -127,6 +151,7 @@ def fetch(db_path):
 
     conn.close()
     print('Done.')
+    return 0
 
 
 def main():
@@ -136,7 +161,7 @@ def main():
     parser.add_argument('--db', default=os.environ.get('STOCKDB', default_db),
                         help='Path to stockdb.db')
     args = parser.parse_args()
-    fetch(args.db)
+    exit(fetch(args.db))
 
 
 if __name__ == '__main__':
