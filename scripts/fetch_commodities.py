@@ -55,8 +55,8 @@ COMMODITIES = [
     {'id': 'LEAD',         'name': 'Lead',              'unit': 'USD/tonne',   'te_symbol': 'LMPBDS03:COM',     'yf_symbol': None},
     # Bulk commodities (ASX critical)
     {'id': 'IRON-ORE',     'name': 'Iron Ore',          'unit': 'USD/tonne',   'te_symbol': 'IRONORE:COM',      'yf_symbol': None},
-    {'id': 'COKING-COAL',  'name': 'Coking Coal',       'unit': 'USD/tonne',   'te_symbol': 'COALCSC:COM',      'yf_symbol': None},
-    {'id': 'THERMAL-COAL', 'name': 'Thermal Coal',      'unit': 'USD/tonne',   'te_symbol': 'COALAUUS:COM',     'yf_symbol': None},
+    {'id': 'COKING-COAL',  'name': 'Coal (Coking)',     'unit': 'USD/tonne',   'te_symbol': 'COALCSC:COM',      'yf_symbol': None},
+    {'id': 'THERMAL-COAL', 'name': 'Coal (Thermal)',    'unit': 'USD/tonne',   'te_symbol': 'COALAUUS:COM',     'yf_symbol': None},
     # Energy
     {'id': 'WTI-OIL',      'name': 'Crude Oil (WTI)',   'unit': 'USD/bbl',     'te_symbol': 'CL1:COM',          'yf_symbol': 'CL=F'},
     {'id': 'BRENT-OIL',    'name': 'Crude Oil (Brent)', 'unit': 'USD/bbl',     'te_symbol': 'CO1:COM',          'yf_symbol': 'BZ=F'},
