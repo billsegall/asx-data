@@ -123,6 +123,11 @@ def fetch_day(token, exchange, quote_date):
         if not symbol:
             continue
         try:
+            vol = int(float(q.get('Volume', 0) or 0))
+            if vol == 0:
+                # EODData fills public holidays with stale zero-volume rows;
+                # skip them to avoid unadjusted price spikes in the DB.
+                continue
             rows.append((
                 symbol,
                 quote_date,
@@ -130,7 +135,7 @@ def fetch_day(token, exchange, quote_date):
                 float(q.get('High',   0) or 0),
                 float(q.get('Low',    0) or 0),
                 float(q.get('Close',  0) or 0),
-                int(float(q.get('Volume', 0) or 0)),
+                vol,
             ))
         except (ValueError, TypeError):
             continue
