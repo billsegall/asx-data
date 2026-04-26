@@ -2478,26 +2478,33 @@ def api_symbol_changes():
 
 @app.route('/options')
 def api_options():
-    """Options for a symbol. ?symbol=BHP → [{option_symbol, expiry, exercise, ...}, ...]"""
+    """Options for a symbol. ?symbol=BHP → [{option_symbol, expiry, exercise, eod_price, eod_date, ...}, ...]"""
     symbol = request.args.get('symbol', '').strip().upper()
     c = stocks.cursor()
+    eod_join = (
+        " LEFT JOIN endofday e ON e.symbol = o.option_symbol"
+        " AND e.date = (SELECT MAX(date) FROM endofday WHERE symbol = o.option_symbol)"
+    )
+    cols = ("o.option_symbol, o.expiry, o.exercise, o.share_symbol, o.share_name, o.note, o.fetched_at,"
+            " e.close AS eod_price, date(e.date, 'unixepoch', '+10 hours') AS eod_date")
     try:
         if symbol:
             rows = c.execute(
-                'SELECT option_symbol, expiry, exercise, share_symbol, share_name, note, fetched_at'
-                ' FROM asx_options WHERE share_symbol = ? ORDER BY expiry, exercise',
+                f'SELECT {cols} FROM asx_options o{eod_join}'
+                ' WHERE o.share_symbol = ? ORDER BY o.expiry, o.exercise',
                 (symbol,)
             ).fetchall()
         else:
             rows = c.execute(
-                'SELECT option_symbol, expiry, exercise, share_symbol, share_name, note, fetched_at'
-                ' FROM asx_options ORDER BY share_symbol, expiry, exercise'
+                f'SELECT {cols} FROM asx_options o{eod_join}'
+                ' ORDER BY o.share_symbol, o.expiry, o.exercise'
             ).fetchall()
     except Exception:
         return jsonify([])
     return jsonify([{
         'option_symbol': r[0], 'expiry': r[1], 'exercise': r[2],
         'share_symbol': r[3], 'share_name': r[4], 'note': r[5], 'fetched_at': r[6],
+        'eod_price': r[7], 'eod_date': r[8],
     } for r in rows])
 
 

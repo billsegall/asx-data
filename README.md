@@ -174,22 +174,37 @@ Detail chart at `/commodity/<id>` shows full historical price series with range 
 - **VAT adjustments**: Manganese prices from Jupiter Mines include 13% VAT; script divides by 1.13 to get VAT-excluded value
 - **Date granularity**: Most sources provide daily prices; some (like manganese) provide weekly/sparse data only
 
-## Known Limitations
+## ASX Warrant Data
 
-### ASX options data
+ASX-listed warrants (structured products traded like options) are tracked in the `asx_options` table in `stockdb.db`. Data comes from IB Gateway with Markit as fallback.
 
-Options data is **not currently available** due to:
-- **No public data source** — no freely accessible source provides ASX options data with automated access
-- **No public ASX API** — the ASX does not provide a public API for options
-- **Paid alternatives only** — third-party vendors (WebLink, EODHD, etc.) require subscriptions
+### asx_options
+option_symbol | expiry | exercise | share_symbol | share_name | note | fetched_at
+------------- | ------ | -------- | ------------ | ---------- | ---- | ----------
+ACWOC | 2027-09-30 | 0.05 | ACW | ACER CARNEGIE LIMITED | C | 2026-04-26
 
-This affects:
-- Options charts on `/stock/<symbol>` pages (e.g., `/stock/GNMO`)
-- EOD price updates for options
+ASX warrant codes encode the underlying: `XXXO` → underlying `XXX`; `XXXO[A-Z]` → underlying `XXX`. IB's `localSymbol` field equals the ASX code exactly, enabling unambiguous matching.
 
-**Possible solutions**:
-1. Contact ASX requesting API access for options data
-2. Manually import options data periodically
-3. Subscribe to a third-party data vendor
+### Fetch scripts
 
-See `Database.md` → Known Limitations → Options Data Limitation for details.
+#### `fetch_options_ib.py --db <db>`
+Weekly warrant metadata refresh from IB Gateway. Queries by underlying symbol, matches results by `localSymbol`, updates expiry/strike/name in `asx_options`.
+- **Cron**: Sunday 6am AEST (`0 20 * * 6 UTC`)
+- **Requires**: IB Gateway running on `127.0.0.1:4001`
+
+#### `fetch_options_eod.py --db <db>`
+Captures warrant closing prices at end of each trading day. IB Gateway primary source; Markit API fallback for any IB misses. Stores prices in `endofday` table (same as equities).
+- **Cron**: Weekdays 4pm AEST (`0 6 * * 2-6 UTC`)
+- **Requires**: IB Gateway and/or `MARKIT_TOKEN` env var
+
+### API
+
+`GET /options[?symbol=XXX]` — returns all warrants (or filtered by underlying) with latest EOD price and date from `endofday` join:
+
+```json
+[{"option_symbol": "ACWOC", "expiry": "2027-09-30", "exercise": 0.05,
+  "share_symbol": "ACW", "share_name": "ACER CARNEGIE LIMITED",
+  "eod_price": 0.004, "eod_date": "2026-04-26", ...}]
+```
+
+Live price endpoint in asx-web: `POST /api/option-quotes` — IB Gateway primary, Markit fallback, smart market-hours caching.
