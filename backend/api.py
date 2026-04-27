@@ -454,12 +454,19 @@ def api_symbol_info(symbol):
             (symbol,)
         ).fetchall()
     ]
+    short_row = c.execute(
+        '''SELECT short FROM shorts WHERE symbol = ?
+           ORDER BY date DESC LIMIT 1''',
+        (symbol,)
+    ).fetchone()
     return jsonify({
         'is_option': False,
         'name': name,
         'industry': industry,
         'mcap': millify(mcap) if mcap else None,
+        'mcap_raw': mcap,
         'shares': millify(shares) if shares else None,
+        'short_pct': short_row[0] if short_row else None,
         'options': options,
     })
 
