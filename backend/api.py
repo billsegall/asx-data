@@ -218,7 +218,9 @@ def _enrich_batch(symbols):
         result[row[0]]['industry'] = row[2]
         price = result[row[0]].get('price')
         if row[3] and price:
-            result[row[0]]['mcap'] = millify(row[3] * price)
+            mcap_val = row[3] * price
+            result[row[0]]['mcap']     = millify(mcap_val)
+            result[row[0]]['mcap_raw'] = mcap_val
 
     # Query 6: key fundamentals (weekly snapshot)
     try:
@@ -599,6 +601,34 @@ def api_dividends(symbol):
         'amount':   r[1],
         'currency': r[2],
     } for r in rows])
+
+
+@app.route('/api/dividends/batch', methods=['POST'])
+def api_dividends_batch():
+    """Recent dividend history for multiple symbols. Body: {"symbols": [...], "limit": 6}"""
+    data    = request.get_json(force=True) or {}
+    symbols = [s.strip().upper() for s in (data.get('symbols') or []) if s]
+    limit   = int(data.get('limit', 6))
+    if not symbols:
+        return jsonify({})
+    placeholders = ','.join('?' * len(symbols))
+    c = stocks.cursor()
+    try:
+        rows = c.execute(
+            f'''SELECT symbol, ex_date, amount, currency
+                FROM dividends WHERE symbol IN ({placeholders})
+                ORDER BY symbol, ex_date DESC''',
+            symbols,
+        ).fetchall()
+    except Exception:
+        return jsonify({'error': 'dividends table not available'}), 503
+    result = {}
+    for sym, ex_date, amount, currency in rows:
+        if sym not in result:
+            result[sym] = []
+        if len(result[sym]) < limit:
+            result[sym].append({'ex_date': ex_date, 'amount': amount, 'currency': currency})
+    return jsonify(result)
 
 
 @app.route('/api/events/range')
