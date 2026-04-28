@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-# Copyright (c) 2019-2024, Bill Segall
+# Copyright (c) 2019-2026, Bill Segall
 # All rights reserved. See LICENSE for details.
 
 import argparse, csv, glob, locale, sqlite3, time, sys, cProfile, pstats, re
