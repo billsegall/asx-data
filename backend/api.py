@@ -2751,3 +2751,50 @@ def api_quote(symbol):
 
     _quote_cache[symbol] = (now_ts, data)
     return jsonify(data)
+
+
+@app.route('/api/ib/price/<symbol>')
+def api_ib_price(symbol):
+    """Last price from IB Gateway. Strips .AX suffix; returns last or close price."""
+    symbol = symbol.strip().upper().removesuffix('.AX')
+    try:
+        import asyncio, random
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        from ib_insync import IB, Stock, Contract
+        ib = IB()
+        ib.connect('127.0.0.1', 4001, clientId=random.randint(100, 199), readonly=True, timeout=5)
+        ib.reqMarketDataType(1)
+        is_warrant = len(symbol) >= 4 and symbol[3] == 'O'
+        if is_warrant:
+            contract = Contract(secType='WAR', localSymbol=symbol, exchange='ASX', currency='AUD')
+        else:
+            contract = Stock(symbol, 'ASX', 'AUD')
+        if not ib.qualifyContracts(contract):
+            ib.disconnect()
+            return jsonify({'error': f'not found: {symbol}'}), 404
+        ticker = ib.reqMktData(contract, genericTickList='', snapshot=False)
+        ib.sleep(2)
+
+        def _price(val):
+            import math
+            if val is None or (isinstance(val, float) and (math.isnan(val) or val == -1.0)):
+                return None
+            return val
+
+        last  = _price(ticker.last)
+        close = _price(ticker.close)
+        price = last if last is not None else close
+
+        ib.cancelMktData(contract)
+        ib.disconnect()
+
+        if price is None:
+            return jsonify({'error': 'no price available'}), 503
+        return jsonify({'symbol': symbol, 'price': round(float(price), 3), 'source': 'ib'})
+    except Exception as e:
+        try:
+            ib.disconnect()
+        except Exception:
+            pass
+        app.logger.warning('api_ib_price %s failed: %s', symbol, e)
+        return jsonify({'error': str(e)}), 503
