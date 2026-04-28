@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """
 Fetch daily EOD price data from Yahoo Finance and merge into endofday/endofmonth.
 

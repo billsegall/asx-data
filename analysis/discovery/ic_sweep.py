@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Multi-lag IC sweep with FDR correction.
 
 Sweeps all (feature, lag) pairs, computes Spearman IC series + stats,

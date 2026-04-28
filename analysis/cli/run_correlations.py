@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """CLI entry point: lead-lag correlation discovery pipeline.
 
 Usage (from repo root):

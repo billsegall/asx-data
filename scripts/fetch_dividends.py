@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """
 fetch_dividends.py — Fetch historical dividend data for ASX stocks from Yahoo Finance.
 

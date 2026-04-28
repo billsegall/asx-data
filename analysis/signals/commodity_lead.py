@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """CommodityLeadSignal: placeholder — commodity price trend → sector leads.
 
 Fetches GC=F (gold), CL=F (crude oil), HG=F (copper) from yfinance.

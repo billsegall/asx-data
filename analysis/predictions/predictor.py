@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Generate current signal scores per symbol → ranked output JSON."""
 
 import json

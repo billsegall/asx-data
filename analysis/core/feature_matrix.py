@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Build (N_sym × N_dates) GPU tensors from EOD + shorts DataFrames.
 
 Parquet cache is keyed by (split, max_eod_date_hash) to auto-invalidate when DB updates.

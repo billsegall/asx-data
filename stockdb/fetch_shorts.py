@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 # Download ASIC short selling YTD CSV files.
 #
 # The ASIC JSON index covers 2010-present but the CSV format changed in 2022,

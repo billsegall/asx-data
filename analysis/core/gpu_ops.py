@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """GPU-accelerated operations using pure PyTorch.
 
 All tensors: (N_sym, N_dates) float32 on CUDA.

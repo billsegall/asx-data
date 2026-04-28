@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """BacktestEngine: train/backtest isolation enforced at runtime.
 
 fit_threshold() only uses fm_train.

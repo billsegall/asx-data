@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 from .base import Signal
 from .short_trend import ShortTrendSignal
 from .short_squeeze import ShortSqueezeSignal

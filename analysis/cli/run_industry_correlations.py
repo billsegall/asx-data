@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """CLI: run lead-lag correlations for every ASX industry and store in SQLite.
 
 Usage (from repo root):

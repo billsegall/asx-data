@@ -115,3 +115,7 @@ analysis/results/*.json
 analysis/results/*.csv
 analysis/cache/*.parquet
 analysis/logs/*.log
+stockdb/stockdb.db-shm
+stockdb/stockdb.db-wal
+eod.csv
+analysis/results/correlations.db

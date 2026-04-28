@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Fetch ASX end-of-day data from the EODData REST API.
 
 Appends new trading days to asx-eod-data/eod.csv and asx-eod-data/eom.csv,

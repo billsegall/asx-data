@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Portfolio backtest: pick top-10 per signal at training cutoff, track $1000/stock over backtest period.
 
 Entry date  = last trading day in training set (~2025-02-28)

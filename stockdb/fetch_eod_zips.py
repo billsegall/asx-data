@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Download ASX EOD zip files from eoddata.com.
 
 Downloads the current and previous year zips into asx-eod-data/zips/,

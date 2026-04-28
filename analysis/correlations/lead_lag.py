@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """Vectorised lead-lag cross-correlation (CCF) using PyTorch.
 
 All tensors are (N_sym, N_dates) float32. NaN values must be filled with 0

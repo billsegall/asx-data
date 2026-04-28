@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """VolumeAnomalySignal: volume z-score × sign(5d return) → signed directional signal."""
 
 import torch

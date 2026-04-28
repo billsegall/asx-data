@@ -1,3 +1,5 @@
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 """ASX market holidays by year (verify annually at asx.com.au/about/trading-calendar)"""
 
 ASX_HOLIDAYS: dict[int, set] = {

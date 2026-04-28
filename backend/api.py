@@ -1,4 +1,6 @@
 #! /usr/bin/env python3
+# Copyright (c) 2019-2026, Bill Segall
+# All rights reserved. See LICENSE for details.
 # Stock data REST API — backend service for asx-data. Deploy via deploy.sh.
 # No user auth — internal network only.
 # Frontend calls this instead of importing stockdb directly.
