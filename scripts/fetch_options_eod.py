@@ -64,11 +64,13 @@ def fetch_ib_prices(symbols: list[str], host: str, port: int) -> dict[str, float
     try:
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
-            contracts = [
+            orig_contracts = [
                 Contract(secType='WAR', localSymbol=sym, exchange='ASX', currency='AUD')
                 for sym in chunk
             ]
-            qualified = [c for c in ib.qualifyContracts(*contracts) if c.conId]
+            # Map original symbol → qualified contract (IB may normalise localSymbol, e.g. GNMO→GNMOC)
+            orig_by_local = {c.localSymbol: orig for orig, c in zip(chunk, orig_contracts)}
+            qualified = [c for c in ib.qualifyContracts(*orig_contracts) if c.conId]
             if not qualified:
                 continue
 
@@ -76,7 +78,8 @@ def fetch_ib_prices(symbols: list[str], host: str, port: int) -> dict[str, float
                        for c in qualified}
             ib.sleep(2)
 
-            for sym, ticker in tickers.items():
+            for ib_sym, ticker in tickers.items():
+                sym = orig_by_local.get(ib_sym, ib_sym)
                 def _p(v):
                     if v is None:
                         return None
