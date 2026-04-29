@@ -2756,6 +2756,11 @@ def api_quote(symbol):
 @app.route('/api/ib/price/<symbol>')
 def api_ib_price(symbol):
     """Last price from IB Gateway. Strips .AX suffix; returns last or close price."""
+    required_key = os.environ.get('IB_API_KEY')
+    if required_key:
+        provided_key = request.headers.get('X-API-Key') or request.args.get('key')
+        if provided_key != required_key:
+            return jsonify({'error': 'unauthorized'}), 401
     symbol = symbol.strip().upper().removesuffix('.AX')
     try:
         import asyncio, random
