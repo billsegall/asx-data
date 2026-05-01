@@ -2768,7 +2768,7 @@ def api_ib_price(symbol):
         from ib_insync import IB, Stock, Contract
         ib = IB()
         ib.connect('127.0.0.1', 4001, clientId=random.randint(100, 199), readonly=True, timeout=5)
-        ib.reqMarketDataType(1)
+        ib.reqMarketDataType(4)  # delayed-frozen: returns last available price outside market hours
         is_warrant = len(symbol) >= 4 and symbol[3] == 'O'
         if is_warrant:
             contract = Contract(secType='WAR', localSymbol=symbol, exchange='ASX', currency='AUD')
@@ -2777,7 +2777,7 @@ def api_ib_price(symbol):
         if not ib.qualifyContracts(contract):
             ib.disconnect()
             return jsonify({'error': f'not found: {symbol}'}), 404
-        ticker = ib.reqMktData(contract, genericTickList='', snapshot=False)
+        ticker = ib.reqMktData(contract, genericTickList='', snapshot=True)
         ib.sleep(2)
 
         def _price(val):
@@ -2791,6 +2791,14 @@ def api_ib_price(symbol):
         price = last if last is not None else close
 
         ib.cancelMktData(contract)
+
+        # Fall back to last historical bar when market data unavailable (weekend / no subscription)
+        if price is None:
+            bars = ib.reqHistoricalData(contract, endDateTime='', durationStr='5 D',
+                                        barSizeSetting='1 day', whatToShow='TRADES', useRTH=True)
+            if bars:
+                price = bars[-1].close
+
         ib.disconnect()
 
         if price is None:
