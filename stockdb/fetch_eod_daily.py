@@ -40,8 +40,23 @@ def main():
     db = sqlite3.connect(args.db)
     c = db.cursor()
 
-    # Find the current max date in endofday
-    row = c.execute('SELECT MAX(date) FROM endofday').fetchone()
+    # Build ticker list first: current symbols only, excluding exchange-listed
+    # options/warrants (their names contain "OPTION" or "WARRANT"). These are
+    # separate from the intraday options fetched by fetch_options_eod.py.
+    symbols = [r[0] for r in c.execute(
+        "SELECT symbol FROM symbols WHERE current = 1"
+        " AND name NOT LIKE '%OPTION%' AND name NOT LIKE '%WARRANT%'"
+    ).fetchall()]
+
+    # Find max date using only the symbols we will fetch. Using MAX(endofday)
+    # without this filter previously caused options data (inserted by
+    # fetch_options_eod.py with future-dated timestamps) to make the script
+    # think regular stock data was already up to date.
+    if not symbols:
+        print("Error: no symbols to fetch", file=sys.stderr)
+        sys.exit(1)
+    ph = ','.join('?' * len(symbols))
+    row = c.execute(f'SELECT MAX(date) FROM endofday WHERE symbol IN ({ph})', symbols).fetchone()
     if not row or row[0] is None:
         print("Error: endofday is empty; run full rebuild first", file=sys.stderr)
         sys.exit(1)
@@ -62,9 +77,6 @@ def main():
     n_deleted = c.rowcount
     if n_deleted:
         print(f"  Removed {n_deleted} existing rows from {start_dt} onwards (re-run cleanup)")
-
-    # Build ticker list: current symbols only (current=1 set by previous run or full rebuild)
-    symbols = [r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1').fetchall()]
     ticker_map = {sym: ('^AORD' if sym == 'XAO' else f'{sym}.AX') for sym in symbols}
     reverse_map = {v: k for k, v in ticker_map.items()}
     tickers = list(ticker_map.values())
