@@ -2811,3 +2811,24 @@ def api_ib_price(symbol):
             pass
         app.logger.warning('api_ib_price %s failed: %s', symbol, e)
         return jsonify({'error': str(e)}), 503
+
+
+@app.route('/api/eod/<symbol>')
+def api_eod_price(symbol):
+    """Last EOD close price from the endofday table. Authenticated via IB_API_KEY."""
+    required_key = os.environ.get('IB_API_KEY')
+    if required_key:
+        provided_key = request.headers.get('X-API-Key') or request.args.get('key')
+        if provided_key != required_key:
+            return jsonify({'error': 'unauthorized'}), 401
+    symbol = symbol.strip().upper().removesuffix('.AX')
+    c = stocks.cursor()
+    row = c.execute(
+        'SELECT date, close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1',
+        (symbol,)
+    ).fetchone()
+    if not row:
+        return jsonify({'error': f'not found: {symbol}'}), 404
+    import datetime
+    date_str = datetime.date.fromtimestamp(row[0]).isoformat()
+    return jsonify({'symbol': symbol, 'date': date_str, 'close': round(row[1], 4)})
