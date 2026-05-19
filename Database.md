@@ -160,6 +160,14 @@ Read-write from the web frontend. Contains all user auth and user-specific data.
 | `email` | `TEXT NOT NULL UNIQUE COLLATE NOCASE` | Login identifier |
 | `pw_hash` | `TEXT` | NULL for first-login users (triggers `/set-password` flow) |
 | `enabled` | `INTEGER NOT NULL DEFAULT 1` | 0 = account disabled |
+| `is_admin` | `INTEGER NOT NULL DEFAULT 0` | 1 = admin; can manage users and toggle features |
+| `show_experimental` | `INTEGER NOT NULL DEFAULT 0` | 1 = Fermi analysis enabled for this user |
+| `reset_hour` | `INTEGER NOT NULL DEFAULT 10` | Hour (AEST) at which yesterday's announcement icons reset |
+| `default_page` | `TEXT NOT NULL DEFAULT '/'` | Landing page after login |
+| `show_premarket_indicative` | `INTEGER NOT NULL DEFAULT 0` | Show pre-market indicative prices on stock page |
+| `alert_limit` | `INTEGER NOT NULL DEFAULT 20` | Max alerts this user can create |
+| `table_font_size` | `TEXT` | Font size for watchlist/portfolio tables |
+| `table_font_dense` | `TEXT` | Dense font size for tables |
 
 The admin user (configured via `ADMIN_EMAIL` env var) is seeded on startup, always enabled, non-deletable.
 
@@ -266,18 +274,99 @@ Contract notes are parsed by the CMC/generic parser in `asx.py` and stored here 
 | `computed_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | |
 | UNIQUE | `(algorithm_id, symbol, signal_date)` | |
 
+### `alerts`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `user_id` | `INTEGER NOT NULL` | FK → `users(id) ON DELETE CASCADE` |
+| `name` | `TEXT NOT NULL` | Display name |
+| `symbol` | `TEXT` | ASX ticker (NULL for portfolio-wide alerts) |
+| `enabled` | `INTEGER NOT NULL DEFAULT 1` | 0 = paused |
+| `portfolio_ids` | `TEXT` | JSON array of list IDs to monitor (alternative to symbol) |
+| `baseline_price` | `REAL` | Reference price at time of creation |
+| `notes` | `TEXT` | User notes |
+| `created_at` | `TEXT` | |
+| `updated_at` | `TEXT` | |
+
+### `alert_conditions`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `alert_id` | `INTEGER NOT NULL` | FK → `alerts(id) ON DELETE CASCADE` |
+| `condition_type` | `TEXT NOT NULL` | e.g. `'price_above'`, `'price_below'` |
+| `threshold_value` | `REAL NOT NULL` | Trigger level |
+| `direction` | `TEXT` | Direction qualifier if applicable |
+| `last_triggered` | `TEXT` | ISO datetime of last trigger |
+| `created_at` | `TEXT` | |
+
+### `fermi_reports`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT PRIMARY KEY` | UUID |
+| `research_report_id` | `INTEGER` | FK → `research_reports(id) ON DELETE CASCADE` (NULL for standalone) |
+| `user_id` | `INTEGER NOT NULL` | FK → `users(id) ON DELETE CASCADE` |
+| `symbol` | `TEXT` | ASX ticker the analysis targets |
+| `model` | `TEXT NOT NULL` | Claude model used (e.g. `claude-haiku-4-5`) |
+| `status` | `TEXT NOT NULL DEFAULT 'queued'` | `queued`, `running`, `completed`, `failed` |
+| `progress_pct` | `INTEGER DEFAULT 0` | 0–100 |
+| `error_msg` | `TEXT` | Error detail if status = failed |
+| `output_path` | `TEXT` | Local path to completed report PDF |
+| `api_cost_usd` | `REAL DEFAULT 0` | Total API spend for this report |
+| `created_at` | `TEXT NOT NULL` | |
+| `started_at` | `TEXT` | |
+| `completed_at` | `TEXT` | |
+| `research_data` | `BLOB` | Serialised research context used for generation |
+
+### `fermi_api_calls`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `fermi_report_id` | `TEXT NOT NULL` | FK → `fermi_reports(id) ON DELETE CASCADE` |
+| `call_type` | `TEXT` | Phase label (e.g. `'extraction'`, `'analysis'`) |
+| `model` | `TEXT` | Model used for this call |
+| `tokens_in` | `INTEGER` | Input tokens |
+| `tokens_out` | `INTEGER` | Output tokens |
+| `cost_usd` | `REAL` | Cost of this call |
+| `timestamp` | `TEXT` | |
+
+### `dashboard_preferences`
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | `INTEGER NOT NULL PRIMARY KEY` | FK → `users(id) ON DELETE CASCADE` |
+| `ann_price_sensitive_only` | `INTEGER NOT NULL DEFAULT 1` | Announcement feed: price-sensitive only |
+| `ann_scope` | `TEXT NOT NULL DEFAULT 'both'` | `'watchlist'`, `'portfolio'`, or `'both'` |
+| `events_scope` | `TEXT NOT NULL DEFAULT 'both'` | `'watchlist'`, `'portfolio'`, or `'both'` |
+| `commodities` | `TEXT NOT NULL` | JSON array of pinned commodity IDs |
+| `widget_order` | `TEXT NOT NULL` | JSON array of widget IDs in display order |
+| `panels_config` | `TEXT NOT NULL DEFAULT '[]'` | JSON array of custom panel configs |
+| `screener_saved` | `TEXT NOT NULL DEFAULT '[]'` | JSON array of saved screener filters |
+| `options_saved` | `TEXT NOT NULL DEFAULT '[]'` | JSON array of saved warrant filter configs |
+
+### `user_feature_changes`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `admin_user_id` | `INTEGER NOT NULL` | FK → `users(id)` — admin who made the change |
+| `target_user_id` | `INTEGER NOT NULL` | FK → `users(id)` — user affected |
+| `feature` | `TEXT NOT NULL` | Feature flag name (e.g. `'show_experimental'`) |
+| `old_value` | `INTEGER` | Previous value |
+| `new_value` | `INTEGER` | New value |
+| `timestamp` | `TEXT NOT NULL` | |
+
+Audit log for admin-toggled per-user feature flags.
+
 ### `asx_options`
 | Column | Type | Notes |
 |--------|------|-------|
-| `option_symbol` | `TEXT PRIMARY KEY` | ASX option code |
+| `option_symbol` | `TEXT PRIMARY KEY` | ASX warrant code |
 | `expiry` | `TEXT NOT NULL` | Expiry date (YYYY-MM-DD) |
-| `exercise` | `REAL NOT NULL` | Exercise price |
+| `exercise` | `REAL NOT NULL` | Exercise/strike price |
 | `share_symbol` | `TEXT NOT NULL` | Underlying share ticker |
 | `share_name` | `TEXT NOT NULL` | Underlying company name |
-| `note` | `TEXT` | Additional info from ASX |
-| `fetched_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | When last fetched |
+| `note` | `TEXT` | Additional info (e.g. `'C'` for call) |
+| `fetched_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | When last refreshed |
 
-**Status:** This table is currently empty. No public data source for ASX options is available. See [options data limitation](#options-data-limitation) below.
+Populated by `asx-data/scripts/fetch_options_ib.py` (weekly from IB Gateway) and `fetch_options_eod.py` (daily EOD prices into `endofday`). EOD prices joined at query time from `endofday` on `option_symbol`.
 
 ### `symbol_changes`
 | Column | Type | Notes |
@@ -300,9 +389,6 @@ Populated by `asx-data/scripts/fetch_symbol_changes.py`. Displayed on the stock 
 | `file_type` | `TEXT` | `'pdf'` or `'docx'` |
 | `file_data` | `BLOB` | Raw file bytes |
 | `extracted_text` | `TEXT` | Full plain text extracted from the document |
-| `bull_target` | `REAL` | Bull case midpoint price target (legacy) |
-| `base_target` | `REAL` | Base case midpoint price target (legacy) |
-| `bear_target` | `REAL` | Bear case midpoint price target (legacy) |
 | `bull_low` | `REAL` | Bull case lower bound price target |
 | `bull_high` | `REAL` | Bull case upper bound price target |
 | `base_low` | `REAL` | Base case lower bound price target |
@@ -313,11 +399,21 @@ Populated by `asx-data/scripts/fetch_symbol_changes.py`. Displayed on the stock 
 | `base_prob` | `REAL` | Base case probability (0–1) |
 | `bear_prob` | `REAL` | Bear case probability (0–1) |
 | `report_date` | `TEXT` | Report publication date (YYYY-MM-DD), extracted from document header |
+| `folder_id` | `INTEGER` | FK → `research_folders(id) ON DELETE SET NULL` |
 | `notes` | `TEXT` | User notes |
 | `is_public` | `INTEGER NOT NULL DEFAULT 0` | 0 = private, 1 = public (visible to all users) |
 | `uploaded_at` | `INTEGER NOT NULL` | Unix timestamp of upload |
 
 AI extraction uses Claude Haiku via `ANTHROPIC_API_KEY`. Expected Value = Σ(prob_i × midpoint_i).
+
+### `research_folders`
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `user_id` | `INTEGER NOT NULL` | FK → `users(id) ON DELETE CASCADE` |
+| `name` | `TEXT NOT NULL` | |
+| `position` | `INTEGER NOT NULL DEFAULT 0` | Sort order |
+| `parent_id` | `INTEGER` | FK → `research_folders(id) ON DELETE SET NULL` — for nested folders |
 
 ---
 
@@ -345,19 +441,3 @@ PDFs stored at `asx-announcements/pdfs/YYYY/YYYY-MM/YYYY-MM-DD/<ids_id>.pdf`.
 
 ---
 
-## Known Limitations
-
-### Options Data Limitation
-
-The `asx_options` table is currently empty because:
-
-1. **No public data source**: No freely accessible source provides ASX options data with automated access
-2. **No public ASX API**: The ASX does not provide a public API for options data
-3. **Paid alternatives only**: Third-party data vendors (WebLink, EODHD, etc.) require paid subscriptions
-
-**Possible solutions**:
-- Contact ASX requesting API access for options data
-- Manually import options data periodically
-- Subscribe to a third-party data vendor
-
-**Impact**: Options charts and data will not display on the web frontend until this is resolved. The underlying stock data is unaffected.

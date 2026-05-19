@@ -5,20 +5,11 @@ The web frontend lives in a separate repo: [asx-web](https://github.com/billsega
 
 ## ASX short data
 
-The **raw** short data was obtained from
-[ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-position-reports-table/),
-and contains some
-[inaccuracies](https://asic.gov.au/regulatory-resources/markets/short-selling/short-selling-reports-notice/).
-
-These were then massaged a little (ascii/latin, trailing comma on
-dates). See the Makefile for how they're then put into the database.
+Daily short positions fetched from [ASIC](https://asic.gov.au/regulatory-resources/markets/short-selling/short-position-reports-table/) via `fetch_shorts.py`. Data goes back to 2010. Raw CSV files stored in `shorts/YYYY.csv`.
 
 ## ASX price data
 
-The price data currently in use is purchased from eoddata.com and is
-proprietary. Should you purchase it you should place the zip files in
-a directory named asx-eod-data/zips/ and we should be able to work
-with that. Please contact me if that isn't the case.
+Historical OHLCV data was originally sourced from eoddata.com (purchased, proprietary; zip files in `asx-eod-data/zips/`). Ongoing daily prices are fetched via IB Gateway at end of day.
 
 ## ASX symbol data
 
