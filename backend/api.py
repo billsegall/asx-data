@@ -819,6 +819,7 @@ def api_commodities():
                 prev.price AS prev_price,
                 stats.high_52w,
                 stats.low_52w,
+                stats.data_start,
                 stats.high_52w_date,
                 stats.low_52w_date
             FROM commodity_meta m
@@ -832,6 +833,7 @@ def api_commodities():
                     id,
                     MAX(price) AS high_52w,
                     MIN(price) AS low_52w,
+                    MIN(date)  AS data_start,
                     (SELECT date FROM commodity_prices cp2 WHERE cp2.id = cp1.id AND cp2.date >= :yr_ago ORDER BY cp2.price DESC LIMIT 1) AS high_52w_date,
                     (SELECT date FROM commodity_prices cp3 WHERE cp3.id = cp1.id AND cp3.date >= :yr_ago ORDER BY cp3.price ASC LIMIT 1) AS low_52w_date
                 FROM commodity_prices cp1 WHERE date >= :yr_ago GROUP BY id
@@ -854,7 +856,7 @@ def api_commodities():
 
     result = []
     for r in rows:
-        cid, name, unit, price, date, prev_price, high_52w, low_52w, high_52w_date, low_52w_date = r
+        cid, name, unit, price, date, prev_price, high_52w, low_52w, data_start, high_52w_date, low_52w_date = r
         change_pct = None
         if price is not None and prev_price is not None and prev_price != 0:
             change_pct = (price - prev_price) / prev_price * 100
@@ -867,6 +869,7 @@ def api_commodities():
             'change_pct': round(change_pct, 2) if change_pct is not None else None,
             'high_52w':   high_52w,
             'low_52w':    low_52w,
+            'data_start': data_start * 1000 if data_start else None,
             'high_52w_date': high_52w_date * 1000 if high_52w_date else None,
             'low_52w_date':  low_52w_date * 1000 if low_52w_date else None,
             'sparkline':  sparklines.get(cid, []),
