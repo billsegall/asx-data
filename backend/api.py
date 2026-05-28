@@ -904,6 +904,84 @@ def api_commodity(commodity_id):
     })
 
 
+@app.route('/api/crypto')
+def api_crypto():
+    """Top-N crypto coins from crypto_meta with 30-day sparklines."""
+    c = stocks.cursor()
+    try:
+        rows = c.execute('''
+            SELECT id, name, rank, price, change_pct_24h, market_cap, volume_24h, updated_at
+            FROM crypto_meta
+            ORDER BY rank ASC
+        ''').fetchall()
+    except Exception:
+        return jsonify({'error': 'crypto tables not available'}), 503
+
+    spark_cutoff = int(time.time() - 30 * 86400)
+    try:
+        spark_rows = c.execute(
+            'SELECT id, date, close FROM crypto_prices WHERE date >= ? ORDER BY id, date',
+            (spark_cutoff,)
+        ).fetchall()
+    except Exception:
+        spark_rows = []
+
+    sparklines = {}
+    for r in spark_rows:
+        sparklines.setdefault(r[0], []).append([r[1] * 1000, r[2]])
+
+    result = []
+    for r in rows:
+        cid, name, rank, price, change_pct_24h, market_cap, volume_24h, updated_at = r
+        result.append({
+            'id':             cid,
+            'name':           name,
+            'rank':           rank,
+            'price':          price,
+            'change_pct_24h': change_pct_24h,
+            'market_cap':     market_cap,
+            'volume_24h':     volume_24h,
+            'updated_at':     updated_at,
+            'sparkline':      sparklines.get(cid, []),
+        })
+    return jsonify(result)
+
+
+@app.route('/api/crypto/<crypto_id>')
+def api_crypto_detail(crypto_id):
+    """OHLCV history for one crypto. Optional ?start=YYYYMMDD&end=YYYYMMDD."""
+    crypto_id = crypto_id.strip().upper()
+    c = stocks.cursor()
+    try:
+        meta = c.execute(
+            'SELECT id, name, yf_symbol, rank, price, change_pct_24h, market_cap, volume_24h FROM crypto_meta WHERE id = ?',
+            (crypto_id,)
+        ).fetchone()
+        if not meta:
+            return jsonify({'error': f'Unknown crypto {crypto_id!r}'}), 404
+        start_ts = _parse_date_arg(request.args.get('start'), default_days_ago=365 * 100)
+        end_ts   = _parse_date_arg(request.args.get('end'),   default_days_ago=0)
+        rows = c.execute(
+            'SELECT date, open, high, low, close, volume FROM crypto_prices WHERE id = ? AND date >= ? AND date <= ? ORDER BY date',
+            (crypto_id, start_ts, end_ts)
+        ).fetchall()
+    except Exception as e:
+        return jsonify({'error': 'crypto tables not available'}), 503
+
+    cid, name, yf_symbol, rank, price, change_pct_24h, market_cap, volume_24h = meta
+    return jsonify({
+        'id':             cid,
+        'name':           name,
+        'yf_symbol':      yf_symbol,
+        'rank':           rank,
+        'price':          price,
+        'change_pct_24h': change_pct_24h,
+        'market_cap':     market_cap,
+        'volume_24h':     volume_24h,
+        'prices':         [[r[0] * 1000, r[1], r[2], r[3], r[4], r[5]] for r in rows],
+    })
+
+
 def _parse_date_arg(val, default_days_ago: int) -> int:
     """Parse YYYYMMDD query param to Unix timestamp. Falls back to now - default_days_ago."""
     if val:
