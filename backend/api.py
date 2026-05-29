@@ -441,6 +441,13 @@ def api_symbol_info(symbol):
     if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
         abort(404)
     name, industry, shares = stocks.LookupSymbol(symbol)
+    if not shares:
+        fund_row = c.execute(
+            'SELECT shares_outstanding FROM fundamentals WHERE symbol = ? ORDER BY date DESC LIMIT 1',
+            (symbol,)
+        ).fetchone()
+        if fund_row and fund_row[0]:
+            shares = fund_row[0]
     mcap = None
     if shares:
         row = stocks.cursor().execute(
