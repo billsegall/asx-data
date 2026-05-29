@@ -4,6 +4,7 @@
 
 import json
 import os
+import sqlite3
 import time
 from datetime import date
 import numpy as np
@@ -17,6 +18,14 @@ def _sigmoid(x: float, scale: float = 1.5) -> float:
     return 1.0 / (1.0 + np.exp(-x / scale))
 
 
+def _load_industry_map(db_path: str) -> dict[str, str]:
+    """Return {symbol: industry} from the symbols table."""
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("SELECT symbol, industry FROM symbols WHERE industry IS NOT NULL").fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
 def generate_predictions(db_path: str, output_path: str) -> str:
     """Score all active warrants and write ranked JSON.
 
@@ -25,6 +34,7 @@ def generate_predictions(db_path: str, output_path: str) -> str:
     print('[warrants] Loading active warrant pairs...')
     pairs = load_warrant_pairs(db_path, active_only=True)
     print(f'[warrants] {len(pairs)} pairs loaded')
+    industry_map = _load_industry_map(db_path)
 
     today = date.today()
     recommendations = []
@@ -73,6 +83,7 @@ def generate_predictions(db_path: str, output_path: str) -> str:
             'option_symbol':    pair['option_symbol'],
             'share_symbol':     pair['share_symbol'],
             'share_name':       pair['share_name'],
+            'industry':         industry_map.get(pair['share_symbol'], ''),
             'expiry':           pair['expiry'].isoformat(),
             'strike':           pair['strike'],
             'call_put':         pair['call_put'],
