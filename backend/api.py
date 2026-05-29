@@ -1264,6 +1264,39 @@ def api_analysis_discovery():
 
     return jsonify({'results': rows, 'n': len(rows)})
 
+@app.route('/api/analysis/warrants')
+def api_analysis_warrants():
+    """Current warrant recommendations ranked by composite signal score."""
+    import json as _json
+    path = os.path.join(ANALYSIS_RESULTS_DIR, 'predictions_warrants.json')
+    if not os.path.exists(path):
+        return jsonify({'error': 'No warrant predictions available', 'predictions': []}), 404
+
+    with open(path) as f:
+        data = _json.load(f)
+
+    preds = data.get('predictions', [])
+
+    # Optional query filters
+    call_put  = request.args.get('call_put', '').upper()
+    min_dte   = request.args.get('min_dte',  type=int, default=0)
+    max_dte   = request.args.get('max_dte',  type=int, default=9999)
+    top       = request.args.get('top',      type=int, default=0)
+
+    if call_put in ('C', 'P'):
+        preds = [p for p in preds if p.get('call_put') == call_put]
+    preds = [p for p in preds if min_dte <= p.get('dte', 0) <= max_dte]
+    if top > 0:
+        preds = preds[:top]
+
+    return jsonify({
+        'generated_at':  data.get('generated_at'),
+        'n_considered':  data.get('n_considered'),
+        'n_recommended': len(preds),
+        'predictions':   preds,
+    })
+
+
 @app.route('/discovery')
 def discovery_page():
     return _serve_html('discovery.html')

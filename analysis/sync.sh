@@ -52,6 +52,12 @@ python3 -m analysis.cli.run_industry_correlations \
     --max-lag 20 --min-r 0.15 --market-adjust \
     --min-symbols 5
 
+echo ""
+echo "==> Running warrant analysis..."
+python3 -m analysis.cli.run_warrants \
+    --db "$LOCAL_DB" \
+    --output-dir "$RESULTS_DIR"
+
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
     echo "==> Pushing results to $HARRI..."
