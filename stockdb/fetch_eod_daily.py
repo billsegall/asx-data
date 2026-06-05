@@ -77,7 +77,8 @@ def main():
     n_deleted = c.rowcount
     if n_deleted:
         print(f"  Removed {n_deleted} existing rows from {start_dt} onwards (re-run cleanup)")
-    ticker_map = {sym: ('^AORD' if sym == 'XAO' else f'{sym}.AX') for sym in symbols}
+    _INDEX_MAP = {'XAO': '^AORD', 'XJO': '^AXJO'}
+    ticker_map = {sym: (_INDEX_MAP.get(sym) or f'{sym}.AX') for sym in symbols}
     reverse_map = {v: k for k, v in ticker_map.items()}
     tickers = list(ticker_map.values())
 
