@@ -327,6 +327,46 @@ def api_stock(symbol):
     })
 
 
+@app.route('/api/stock/batch-closes')
+def api_batch_closes():
+    """Daily closes for multiple symbols over a date range.
+
+    Query params: symbols (comma-sep), start/end (YYYY-MM-DD).
+    Returns: {symbol: [[date_iso, close], ...], ...}
+    """
+    symbols_str = request.args.get('symbols', '')
+    start_str   = request.args.get('start', '')
+    end_str     = request.args.get('end', '')
+    symbols = [s.strip().upper() for s in symbols_str.split(',') if s.strip()]
+    if not symbols or len(symbols) > 300:
+        return jsonify({})
+
+    try:
+        start_ts = int(datetime.datetime.strptime(start_str, '%Y-%m-%d').timestamp())
+    except Exception:
+        start_ts = 0
+    try:
+        end_ts = int(datetime.datetime.strptime(end_str, '%Y-%m-%d').timestamp()) + 86399
+    except Exception:
+        end_ts = int(time.time())
+
+    c = stocks.cursor()
+    ph = ','.join('?' * len(symbols))
+    c.execute(
+        f'SELECT symbol, date, close FROM endofday'
+        f' WHERE symbol IN ({ph}) AND date >= ? AND date <= ?'
+        f' ORDER BY symbol, date ASC',
+        symbols + [start_ts, end_ts]
+    )
+    result = {}
+    for row in c.fetchall():
+        sym, ts, close = row[0], int(row[1]), row[2]
+        result.setdefault(sym, []).append(
+            [datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d'), close]
+        )
+    return jsonify(result)
+
+
 @app.route('/api/symbols/all')
 def api_symbols_all():
     """Return ASX symbols. Defaults to current only; pass ?all=1 to include delisted."""
@@ -769,7 +809,7 @@ def api_events_symbol(symbol):
             SELECT id, event_date, end_date, event_type, title, description, is_estimate
             FROM events
             WHERE symbol = ?
-              AND event_date >= strftime('%s','now','-7 days')
+              AND event_date >= strftime('%s','now','start of day')
             ORDER BY event_date
         ''', (symbol,)).fetchall()
     except Exception:
