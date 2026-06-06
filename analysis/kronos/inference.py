@@ -58,8 +58,8 @@ def forecast_5d_returns(
     if not eligible:
         return {}
 
-    # Build y_timestamps: pred_len business days after eval_date
-    y_ts = pd.bdate_range(start=eval_dt, periods=pred_len + 1)[1:]
+    # Build y_timestamps: pred_len business days after eval_date (as Series — Kronos needs Series not DatetimeIndex)
+    y_ts = pd.Series(pd.bdate_range(start=eval_dt, periods=pred_len + 1)[1:])
 
     symbols = list(eligible.keys())
     forecasts = {}
@@ -68,7 +68,7 @@ def forecast_5d_returns(
     for batch_start in range(0, len(symbols), batch_size):
         batch_syms = symbols[batch_start: batch_start + batch_size]
         df_list        = [eligible[s] for s in batch_syms]
-        x_ts_list      = [eligible[s].index for s in batch_syms]
+        x_ts_list      = [pd.Series(eligible[s].index) for s in batch_syms]
         y_ts_list      = [y_ts] * len(batch_syms)
 
         try:

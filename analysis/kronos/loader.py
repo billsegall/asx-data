@@ -32,12 +32,19 @@ def load_all_ohlcv(
     ).timestamp())
 
     with _conn(db_path) as conn:
-        # Active symbols only
-        syms = pd.read_sql_query(
-            "SELECT symbol FROM symbols WHERE current = 1"
-            " AND name NOT LIKE '%OPTION%' AND name NOT LIKE '%WARRANT%'",
-            conn,
-        )['symbol'].tolist()
+        # Active symbols — handle both old schema (no current column) and new
+        try:
+            syms = pd.read_sql_query(
+                "SELECT symbol FROM symbols WHERE current = 1"
+                " AND name NOT LIKE '%OPTION%' AND name NOT LIKE '%WARRANT%'",
+                conn,
+            )['symbol'].tolist()
+        except Exception:
+            syms = pd.read_sql_query(
+                "SELECT symbol FROM symbols"
+                " WHERE name NOT LIKE '%OPTION%' AND name NOT LIKE '%WARRANT%'",
+                conn,
+            )['symbol'].tolist()
 
         if not syms:
             return {}
@@ -52,7 +59,8 @@ def load_all_ohlcv(
             params=syms,
         )
 
-    df['date'] = pd.to_datetime(df['date'], unit='s')
+    # Normalize to date-only (strip the 14:00 UTC time from AEST-midnight timestamps)
+    df['date'] = pd.to_datetime(df['date'], unit='s').dt.tz_localize('UTC').dt.tz_convert('Australia/Sydney').dt.normalize().dt.tz_localize(None)
 
     result = {}
     for sym, grp in df.groupby('symbol', sort=False):
@@ -66,13 +74,6 @@ def load_all_ohlcv(
         # Must have enough history
         if len(grp) < min_days:
             continue
-
-        # Forward-fill short gaps (≤5 days) using business-day reindex
-        full_idx = pd.bdate_range(grp.index[0], grp.index[-1])
-        grp = grp.reindex(full_idx)
-        # Only fill if gap ≤5 consecutive NaNs
-        grp = grp.fillna(method='ffill', limit=5)
-        grp = grp.dropna()
 
         # Exclude noisy symbols (large single-day moves from splits etc.)
         rets = grp['close'].pct_change().abs()
