@@ -20,6 +20,7 @@ from analysis.core.feature_matrix import FeatureMatrix
 from analysis.core.gpu_ops import gpu_monitor
 from analysis.predictions.predictor import Predictor
 from analysis.signals import ShortTrendSignal, ShortSqueezeSignal, VolumeAnomalySignal
+from analysis.signals.kronos import KronosSignal
 
 
 def main():
@@ -28,6 +29,12 @@ def main():
     parser.add_argument('--lookback-days', type=int, default=252,
                         help='Days of history to load for signal computation')
     parser.add_argument('--output-dir', default='analysis/results')
+    parser.add_argument('--kronos-model-dir',
+                        default='analysis/kronos/weights/kronos-mini-asx',
+                        help='Fine-tuned Kronos predictor weights dir (skip Kronos if absent)')
+    parser.add_argument('--kronos-tokenizer-dir',
+                        default='analysis/kronos/weights/tokenizer',
+                        help='KronosTokenizer weights dir')
     args = parser.parse_args()
 
     print(f"[run_predictions] GPU: {gpu_monitor()}")
@@ -51,6 +58,20 @@ def main():
         path = predictor.save(args.output_dir)
         print(f"[run_predictions] → {path}")
         torch.cuda.empty_cache()
+
+    # Kronos signal — standalone (loads own OHLCV, doesn't use FeatureMatrix)
+    if os.path.isdir(args.kronos_model_dir) and os.path.isdir(args.kronos_tokenizer_dir):
+        print(f"[run_predictions] Scoring 'kronos'...")
+        kronos = KronosSignal(
+            db_path=args.db,
+            model_dir=args.kronos_model_dir,
+            tokenizer_dir=args.kronos_tokenizer_dir,
+        )
+        path = kronos.save(args.output_dir)
+        print(f"[run_predictions] → {path}")
+        torch.cuda.empty_cache()
+    else:
+        print(f"[run_predictions] Skipping Kronos (weights not found at {args.kronos_model_dir})")
 
     print(f"\n[run_predictions] Done in {time.time()-t0:.1f}s. GPU: {gpu_monitor()}")
 

@@ -6,5 +6,6 @@ from .short_squeeze import ShortSqueezeSignal
 from .volume_anomaly import VolumeAnomalySignal
 from .commodity_lead import CommodityLeadSignal
 from .announcement import AnnouncementSignal
+from .kronos import KronosSignal
 
 ALL_SIGNALS = [ShortTrendSignal(), ShortSqueezeSignal(), VolumeAnomalySignal()]
