@@ -31,7 +31,7 @@ from analysis.kronos.inference import build_predictor, forecast_5d_returns
 from analysis.kronos.evaluate_ic import spearman_ic
 
 
-TOP_N_VALUES = [10, 20, 50]
+TOP_N_VALUES = [1, 3, 5, 10, 20, 50]
 
 DEFAULT_MODEL_DIR     = 'analysis/kronos/weights/kronos-mini-asx'
 DEFAULT_TOKENIZER_DIR = 'analysis/kronos/weights/tokenizer'
