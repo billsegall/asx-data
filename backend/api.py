@@ -1277,6 +1277,15 @@ def api_analysis_backtest():
     return jsonify(reports)
 
 
+@app.route('/api/analysis/kronos-backtest')
+def api_analysis_kronos_backtest():
+    """Kronos portfolio backtest results."""
+    data = _load_analysis_file('backtest_kronos.json')
+    if data is None:
+        return jsonify({'error': 'No Kronos backtest results available'}), 404
+    return jsonify(data)
+
+
 @app.route('/api/analysis/discovery')
 def api_analysis_discovery():
     """Full IC sweep results — all (feature, lag) pairs."""
