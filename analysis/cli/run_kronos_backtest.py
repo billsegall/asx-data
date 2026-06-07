@@ -5,6 +5,10 @@
 Simulates a long-only top-N portfolio at each evaluation date using Kronos 5-day forecasts.
 Measures actual outcomes and computes hit rate, mean return, Sharpe, max drawdown, IC IR.
 
+Transaction costs:
+    Each position incurs a round-trip cost of 2 × max(fee_per_leg, fee_pct × position_size).
+    Defaults: $6/leg or 0.08%, $1,000 position size → $12.00 round-trip (1.20% of position).
+
 Usage:
     python -m analysis.cli.run_kronos_backtest \\
         --db stockdb/stockdb.db \\
@@ -32,6 +36,17 @@ TOP_N_VALUES = [10, 20, 50]
 DEFAULT_MODEL_DIR     = 'analysis/kronos/weights/kronos-mini-asx'
 DEFAULT_TOKENIZER_DIR = 'analysis/kronos/weights/tokenizer'
 DEFAULT_OUTPUT_DIR    = 'analysis/results'
+
+# Transaction cost defaults (matches signal backtest framework)
+DEFAULT_POSITION_SIZE = 1_000.0   # $ per position
+DEFAULT_FEE_PER_LEG   = 6.0       # $ minimum per leg
+DEFAULT_FEE_PCT       = 0.0008    # 0.08% per leg (whichever is higher)
+
+
+def _round_trip_cost_frac(position_size: float, fee_per_leg: float, fee_pct: float) -> float:
+    """Fractional round-trip cost for one position (buy + sell)."""
+    cost_per_leg = max(fee_per_leg, fee_pct * position_size)
+    return 2 * cost_per_leg / position_size
 
 
 def _max_drawdown(equity: list[float]) -> float:
@@ -68,6 +83,9 @@ def run_backtest(
     pred_len: int = 5,
     device: str = 'cuda',
     resume: bool = True,
+    position_size: float = DEFAULT_POSITION_SIZE,
+    fee_per_leg: float = DEFAULT_FEE_PER_LEG,
+    fee_pct: float = DEFAULT_FEE_PCT,
 ) -> dict:
 
     output_path = os.path.join(output_dir, 'backtest_kronos.json')
@@ -84,57 +102,69 @@ def run_backtest(
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
-    print("[kronos_bt] Loading OHLCV data...")
-    t0 = time.time()
-    ohlcv = load_all_ohlcv(db_path)
-    print(f"[kronos_bt] Loaded {len(ohlcv)} symbols in {time.time()-t0:.1f}s")
-
-    print("[kronos_bt] Loading Kronos model...")
-    predictor = build_predictor(model_dir, tokenizer_dir, device=device)
-
     eval_dates = get_evaluation_dates(db_path, start=start, end=end, step_days=step_days)
     eval_dates = eval_dates[:-pred_len] if len(eval_dates) > pred_len else []
-    print(f"[kronos_bt] {len(eval_dates)} eval dates ({start} → {end or 'today'}, every {step_days}d)")
+    dates_to_compute = [d for d in eval_dates if d not in completed]
 
-    all_syms = list(ohlcv.keys())
+    print(f"[kronos_bt] {len(eval_dates)} eval dates total, {len(dates_to_compute)} to compute.")
+
     date_rows = list(completed.values())
 
-    for i, eval_date in enumerate(eval_dates):
-        if eval_date in completed:
-            continue
+    if dates_to_compute:
+        print("[kronos_bt] Loading OHLCV data...")
+        t0 = time.time()
+        ohlcv = load_all_ohlcv(db_path)
+        print(f"[kronos_bt] Loaded {len(ohlcv)} symbols in {time.time()-t0:.1f}s")
 
-        t1 = time.time()
-        forecasts = forecast_5d_returns(
-            predictor, ohlcv, eval_date, lookback=lookback, pred_len=pred_len
-        )
-        actual = get_actual_5d_returns(db_path, eval_date, all_syms)
-        ic = spearman_ic(forecasts, actual)
-        elapsed = time.time() - t1
+        print("[kronos_bt] Loading Kronos model...")
+        predictor = build_predictor(model_dir, tokenizer_dir, device=device)
+        all_syms = list(ohlcv.keys())
 
-        row = {
-            'date': eval_date,
-            'ic': round(ic, 6) if ic is not None else None,
-            'n_forecast': len(forecasts),
-            'n_actual': len(actual),
-            'forecasts': {s: round(v, 6) for s, v in forecasts.items()},
-            'actual':    {s: round(v, 6) for s, v in actual.items()},
-        }
-        date_rows.append(row)
-        completed[eval_date] = row
+        for i, eval_date in enumerate(eval_dates):
+            if eval_date in completed:
+                continue
 
-        ic_str = f"{ic:+.4f}" if ic is not None else "  None"
-        print(f"  [{i+1}/{len(eval_dates)}] {eval_date}  IC={ic_str}  n={len(forecasts)}  ({elapsed:.0f}s)")
+            t1 = time.time()
+            forecasts = forecast_5d_returns(
+                predictor, ohlcv, eval_date, lookback=lookback, pred_len=pred_len
+            )
+            actual = get_actual_5d_returns(db_path, eval_date, all_syms)
+            ic = spearman_ic(forecasts, actual)
+            elapsed = time.time() - t1
 
-        # Save incrementally
-        _save(output_path, date_rows, start, end, step_days, model_dir)
+            row = {
+                'date': eval_date,
+                'ic': round(ic, 6) if ic is not None else None,
+                'n_forecast': len(forecasts),
+                'n_actual': len(actual),
+                'forecasts': {s: round(v, 6) for s, v in forecasts.items()},
+                'actual':    {s: round(v, 6) for s, v in actual.items()},
+            }
+            date_rows.append(row)
+            completed[eval_date] = row
 
-    return _save(output_path, date_rows, start, end, step_days, model_dir)
+            ic_str = f"{ic:+.4f}" if ic is not None else "  None"
+            print(f"  [{i+1}/{len(eval_dates)}] {eval_date}  IC={ic_str}  n={len(forecasts)}  ({elapsed:.0f}s)")
+
+            # Save incrementally
+            _save(output_path, date_rows, start, end, step_days,
+                  position_size, fee_per_leg, fee_pct)
+    else:
+        print("[kronos_bt] All dates already computed — recomputing portfolio stats.")
+
+    return _save(output_path, date_rows, start, end, step_days,
+                 position_size, fee_per_leg, fee_pct)
 
 
-def _save(output_path, date_rows, start, end, step_days, model_dir) -> dict:
+def _save(
+    output_path, date_rows, start, end, step_days,
+    position_size, fee_per_leg, fee_pct,
+) -> dict:
+    cost_frac = _round_trip_cost_frac(position_size, fee_per_leg, fee_pct)
+
     ic_values = [r['ic'] for r in date_rows if r.get('ic') is not None]
 
-    # IC summary
+    # IC summary (gross — IC not affected by transaction costs)
     if len(ic_values) >= 2:
         mean_ic = sum(ic_values) / len(ic_values)
         std_ic  = float(scipy_stats.tstd(ic_values))
@@ -156,11 +186,11 @@ def _save(output_path, date_rows, start, end, step_days, model_dir) -> dict:
         'ic_series': [{'date': r['date'], 'ic': r['ic']} for r in date_rows if r.get('ic') is not None],
     }
 
-    # Portfolio simulations
+    # Portfolio simulations (net of transaction costs)
     portfolios = {}
     for top_n in TOP_N_VALUES:
         per_date = []
-        all_individual = []
+        all_net_rets = []    # net per-position returns (after costs) — for hit rate
 
         for r in date_rows:
             f = r.get('forecasts', {})
@@ -168,29 +198,32 @@ def _save(output_path, date_rows, start, end, step_days, model_dir) -> dict:
             if not f or not a:
                 continue
 
-            # Top-N by forecast score, must also have actual return
             ranked = sorted(f.keys(), key=lambda s: f[s], reverse=True)
             picks = [s for s in ranked[:top_n] if s in a]
             if not picks:
                 continue
 
-            rets = [a[s] for s in picks]
-            per_date.append({'date': r['date'], 'mean_return': sum(rets) / len(rets), 'n_picks': len(picks)})
-            all_individual.extend(rets)
+            # Net return per position = gross return − round-trip cost
+            net_rets = [a[s] - cost_frac for s in picks]
+            per_date.append({
+                'date': r['date'],
+                'mean_return': sum(net_rets) / len(net_rets),
+                'n_picks': len(picks),
+            })
+            all_net_rets.extend(net_rets)
 
         if not per_date:
             portfolios[f'top{top_n}'] = {}
             continue
 
         period_returns = [d['mean_return'] for d in per_date]
-        hit_all = sum(1 for v in all_individual if v > 0) / len(all_individual) if all_individual else 0.0
+        hit_rate = sum(1 for v in all_net_rets if v > 0) / len(all_net_rets) if all_net_rets else 0.0
 
-        # Cumulative equity curve (compounding per-period returns)
+        # Cumulative equity (compounding)
         equity = [1.0]
         for pr in period_returns:
             equity.append(equity[-1] * (1 + pr))
 
-        # t-test: per-period mean returns vs 0
         if len(period_returns) >= 2:
             _, p = scipy_stats.ttest_1samp(period_returns, 0.0)
         else:
@@ -200,11 +233,11 @@ def _save(output_path, date_rows, start, end, step_days, model_dir) -> dict:
         mdd    = _max_drawdown(equity)
 
         portfolios[f'top{top_n}'] = {
-            'hit_rate':     round(hit_all, 4),
+            'hit_rate':     round(hit_rate, 4),
             'mean_return':  round(sum(period_returns) / len(period_returns), 6),
             'sharpe_proxy': round(sharpe, 4),
             'max_drawdown': round(mdd, 4),
-            'n_trades':     len(all_individual),
+            'n_trades':     len(all_net_rets),
             'n_dates':      len(per_date),
             'p_value':      round(float(p), 6),
             'final_equity': round(equity[-1], 4),
@@ -218,6 +251,10 @@ def _save(output_path, date_rows, start, end, step_days, model_dir) -> dict:
         'params': {
             'start': start, 'end': end, 'step_days': step_days,
             'pred_len': 5, 'top_n_values': TOP_N_VALUES,
+            'position_size': position_size,
+            'fee_per_leg':   fee_per_leg,
+            'fee_pct':       fee_pct,
+            'cost_per_trade_frac': round(cost_frac, 6),
         },
         'ic': ic_summary,
         'portfolios': portfolios,
@@ -243,6 +280,12 @@ def main():
     p.add_argument('--lookback', type=int, default=400)
     p.add_argument('--device', default='cuda')
     p.add_argument('--no-resume', action='store_true')
+    p.add_argument('--position-size', type=float, default=DEFAULT_POSITION_SIZE,
+                   help='$ per position (for fee calculation)')
+    p.add_argument('--fee-per-leg', type=float, default=DEFAULT_FEE_PER_LEG,
+                   help='Minimum $ fee per leg (buy or sell)')
+    p.add_argument('--fee-pct', type=float, default=DEFAULT_FEE_PCT,
+                   help='% fee per leg as fraction (0.0008 = 0.08%%)')
     args = p.parse_args()
 
     result = run_backtest(
@@ -256,16 +299,24 @@ def main():
         lookback=args.lookback,
         device=args.device,
         resume=not args.no_resume,
+        position_size=args.position_size,
+        fee_per_leg=args.fee_per_leg,
+        fee_pct=args.fee_pct,
     )
 
     ic = result.get('ic', {})
-    print(f"\n=== IC Summary ===")
+    pr = result.get('params', {})
+    cost_frac = pr.get('cost_per_trade_frac', 0)
+    print(f"\n=== IC Summary (gross) ===")
     print(f"  n_dates:  {ic.get('n_dates')}")
     print(f"  mean_IC:  {ic.get('mean_ic')}")
     print(f"  IC_IR:    {ic.get('ic_ir')}")
     print(f"  p-value:  {ic.get('p_value')}")
-
-    print(f"\n=== Portfolio Simulations ===")
+    print(f"\n=== Transaction Costs ===")
+    print(f"  Position size:  ${pr.get('position_size'):.0f}")
+    print(f"  Fee per leg:    ${pr.get('fee_per_leg'):.2f} or {pr.get('fee_pct')*100:.2f}% (whichever higher)")
+    print(f"  Round-trip:     {cost_frac*100:.2f}% of position")
+    print(f"\n=== Portfolio Simulations (net of costs) ===")
     for k, v in result.get('portfolios', {}).items():
         if not v:
             continue
