@@ -58,6 +58,12 @@ python3 -m analysis.cli.run_warrants \
     --db "$LOCAL_DB" \
     --output-dir "$RESULTS_DIR"
 
+echo ""
+echo "==> Running Kronos backtest..."
+python3 -m analysis.cli.run_kronos_backtest \
+    --db "$LOCAL_DB" \
+    --output-dir "$RESULTS_DIR"
+
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
     echo "==> Pushing results to $HARRI..."
