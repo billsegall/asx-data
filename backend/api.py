@@ -68,6 +68,26 @@ def _migrate_and_refresh_currency():
 _migrate_and_refresh_currency()
 
 
+def _migrate_kronos_history():
+    """Create kronos_predictions table for historical prediction snapshots."""
+    c = stocks.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS kronos_predictions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        generated_at TEXT NOT NULL,
+        symbol       TEXT NOT NULL,
+        score        REAL NOT NULL,
+        date         INTEGER NOT NULL,
+        name         TEXT,
+        industry     TEXT
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_kronos_pred_run ON kronos_predictions (generated_at)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_kronos_pred_sym ON kronos_predictions (symbol)')
+    stocks.commit()
+
+
+_migrate_kronos_history()
+
+
 ## Utility
 
 def millify(n):
@@ -1284,6 +1304,33 @@ def api_analysis_kronos_backtest():
     if data is None:
         return jsonify({'error': 'No Kronos backtest results available'}), 404
     return jsonify(data)
+
+
+@app.route('/api/analysis/kronos-history')
+def api_analysis_kronos_history():
+    """Historical Kronos prediction runs.
+    ?run=<generated_at> → predictions for that run (top=N optional, default 500)
+    No params → list of available runs with count.
+    """
+    run = request.args.get('run', '').strip()
+    top_n = min(int(request.args.get('top', 500)), 5000)
+    c = stocks.cursor()
+    if not run:
+        rows = c.execute('''SELECT generated_at, COUNT(*) as n
+                            FROM kronos_predictions
+                            GROUP BY generated_at
+                            ORDER BY generated_at DESC''').fetchall()
+        return jsonify({'runs': [{'generated_at': r[0], 'n_symbols': r[1]} for r in rows]})
+    rows = c.execute('''SELECT symbol, score, date, name, industry
+                        FROM kronos_predictions
+                        WHERE generated_at = ?
+                        ORDER BY score DESC
+                        LIMIT ?''', (run, top_n)).fetchall()
+    if not rows:
+        return jsonify({'error': f'No predictions found for run: {run}'}), 404
+    predictions = [{'symbol': r[0], 'score': r[1], 'date': r[2],
+                    'name': r[3], 'industry': r[4]} for r in rows]
+    return jsonify({'generated_at': run, 'n_symbols': len(predictions), 'predictions': predictions})
 
 
 @app.route('/api/analysis/discovery')

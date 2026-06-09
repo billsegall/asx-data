@@ -62,6 +62,10 @@ if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
     echo "==> Pushing results to $HARRI..."
     rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"
+    echo "==> Importing Kronos predictions to history DB on $HARRI..."
+    ssh "$HARRI" "cd $REMOTE_BASE && python3 -m analysis.cli.import_kronos_predictions \
+        --db stockdb/stockdb.db \
+        --json analysis/results/predictions_kronos.json"
     echo "==> Done. Results live at /api/analysis/signals etc."
 else
     echo "==> Skipping push (--skip-push)"
