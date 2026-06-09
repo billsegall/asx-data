@@ -13,7 +13,7 @@ if [[ -f "$(dirname "$0")/../.env" ]]; then
 fi
 
 HARRI=${ASX_SERVER:?'ASX_SERVER env var not set (e.g. user@your-server)'}
-REMOTE_BASE=~/code/asx-data
+REMOTE_BASE=~/code/asx/asx-data
 LOCAL_DB=stockdb/stockdb.db
 RESULTS_DIR=analysis/results
 
