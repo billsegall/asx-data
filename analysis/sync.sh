@@ -66,8 +66,16 @@ python3 -m analysis.cli.run_kronos_backtest \
 
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
-    echo "==> Pushing results to $HARRI..."
-    rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"
+    if [[ -n "${ANALYSIS_MACHINE:-}" ]]; then
+        echo "==> Telling $HARRI to pull results from $ANALYSIS_MACHINE..."
+        ssh "$HARRI" "cd $REMOTE_BASE && python3 analysis/pull_results.py \
+            --remote '$ANALYSIS_MACHINE' \
+            --remote-dir '$REMOTE_BASE/analysis/results' \
+            --local-dir 'analysis/results'"
+    else
+        echo "==> Pushing results to $HARRI (ANALYSIS_MACHINE not set, using rsync)..."
+        rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"
+    fi
     echo "==> Importing Kronos predictions to history DB on $HARRI..."
     ssh "$HARRI" "cd $REMOTE_BASE && python3 -m analysis.cli.import_kronos_predictions \
         --db stockdb/stockdb.db \
