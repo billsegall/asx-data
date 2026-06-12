@@ -21,6 +21,7 @@ mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/kronos_$(date +%Y%m%d_%H%M%S).log"
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Triggering Kronos refresh on $REALITI_HOST" | tee "$LOG"
-ssh -o BatchMode=yes -o ConnectTimeout=30 -o KexAlgorithms=ecdh-sha2-nistp256 "$REALITI_HOST" \
+ssh -o BatchMode=yes -o ConnectTimeout=30 -o KexAlgorithms=ecdh-sha2-nistp256 \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$REALITI_HOST" \
     "cd $REMOTE_DIR && ./analysis/sync.sh 2>&1" | tee -a "$LOG"
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Done" | tee -a "$LOG"
