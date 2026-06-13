@@ -192,7 +192,7 @@ def main():
 
     # Refresh current flags: clear current=1 for symbols with no EOD data in the past year.
     # Only touches current=1 rows — never re-enables symbols already marked as delisted/non-current.
-    one_year_ago = time.time() - 365 * 24 * 3600
+    one_year_ago = time.time() - 90 * 24 * 3600
     c.execute('''UPDATE symbols SET current = 0
                  WHERE current = 1
                  AND symbol NOT IN (
@@ -231,7 +231,7 @@ def main():
 
         # Report any symbols at or above the threshold, but skip symbols that
         # traded within the last 7 days (illiquid stocks that just didn't trade today).
-        MISS_THRESHOLD = 5
+        MISS_THRESHOLD = 10
         one_week_ago = time.time() - 7 * 24 * 3600
         flagged = c.execute(
             'SELECT f.symbol, f.consecutive_misses, f.first_miss_date'
@@ -245,9 +245,14 @@ def main():
         ).fetchall()
         if flagged:
             print(f"\n{len(flagged)} symbol(s) with {MISS_THRESHOLD}+ consecutive fetch failures"
-                  " (possibly delisted):", file=sys.stderr)
+                  " (possibly delisted/suspended):", file=sys.stderr)
             for sym, misses, first in flagged:
                 print(f"  {sym}: {misses} consecutive misses (since {first})", file=sys.stderr)
+            flagged_syms = [sym for sym, _, _ in flagged]
+            ph = ','.join('?' * len(flagged_syms))
+            c.execute(f'UPDATE symbols SET current = 0 WHERE symbol IN ({ph})', flagged_syms)
+            print(f"  → marked {len(flagged_syms)} symbol(s) current=0", file=sys.stderr)
+            db.commit()
 
     db.close()
 
