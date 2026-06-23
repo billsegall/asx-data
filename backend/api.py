@@ -2734,8 +2734,10 @@ def api_symbol_changes():
 
 @app.route('/options')
 def api_options():
-    """Options for a symbol. ?symbol=BHP → [{option_symbol, expiry, exercise, eod_price, eod_date, ...}, ...]"""
+    """Options for a symbol. ?symbol=BHP → [{option_symbol, expiry, exercise, eod_price, eod_date, ...}, ...]
+    Also supports ?option_symbol=VR1O for reverse lookup (warrant → underlying)."""
     symbol = request.args.get('symbol', '').strip().upper()
+    option_symbol = request.args.get('option_symbol', '').strip().upper()
     c = stocks.cursor()
     eod_join = (
         " LEFT JOIN endofday e ON e.symbol = o.option_symbol"
@@ -2744,7 +2746,13 @@ def api_options():
     cols = ("o.option_symbol, o.expiry, o.exercise, o.share_symbol, o.share_name, o.note, o.fetched_at,"
             " e.close AS eod_price, date(e.date, 'unixepoch', '+10 hours') AS eod_date")
     try:
-        if symbol:
+        if option_symbol:
+            rows = c.execute(
+                f'SELECT {cols} FROM asx_options o{eod_join}'
+                ' WHERE o.option_symbol = ?',
+                (option_symbol,)
+            ).fetchall()
+        elif symbol:
             rows = c.execute(
                 f'SELECT {cols} FROM asx_options o{eod_join}'
                 ' WHERE o.share_symbol = ? ORDER BY o.expiry, o.exercise',
