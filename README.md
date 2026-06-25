@@ -172,9 +172,11 @@ ASX-listed warrants (structured products traded like options) are tracked in the
 ### asx_options
 option_symbol | expiry | exercise | share_symbol | share_name | note | fetched_at
 ------------- | ------ | -------- | ------------ | ---------- | ---- | ----------
-ACWOC | 2027-09-30 | 0.05 | ACW | ACER CARNEGIE LIMITED | C | 2026-04-26
+ACWOC | 2027-09-30 | 0.05 | ACW | ACER CARNEGIE LIMITED | | 2026-04-26
 
 ASX warrant codes encode the underlying: `XXXO` → underlying `XXX`; `XXXO[A-Z]` → underlying `XXX`. IB's `localSymbol` field equals the ASX code exactly, enabling unambiguous matching.
+
+The `note` field is for human annotations only (e.g. `post 1:50 consol`). IB's option type field ('C'/'P') is intentionally not stored here — ASX warrants are almost all Calls.
 
 ### Fetch scripts
 
@@ -183,6 +185,8 @@ Weekly warrant metadata refresh from IB Gateway. Queries by underlying symbol, m
 - **Cron**: Sunday 6am AEST (`0 20 * * 6 UTC`)
 - **Requires**: IB Gateway running on `127.0.0.1:4001`
 
+**Consolidation/split adjustment (Phase 3)**: After the IB fetch, the script automatically corrects exercise prices for any warrant whose underlying had a corporate event (consolidation or split) recorded in `corporate_events` after the warrant was last fetched. Formula: `new_exercise = old_exercise / ratio` (where `ratio < 1` for consolidations, `ratio > 1` for splits). Warrants successfully updated by IB in the same run are skipped — IB already provides the adjusted strike. `fetched_at` is updated on adjustment so the correction is not re-applied next run.
+
 #### `fetch_options_eod.py --db <db>`
 Captures warrant closing prices at end of each trading day. IB Gateway primary source; Markit API fallback for any IB misses. Stores prices in `endofday` table (same as equities).
 - **Cron**: Weekdays 4pm AEST (`0 6 * * 2-6 UTC`)
@@ -190,7 +194,7 @@ Captures warrant closing prices at end of each trading day. IB Gateway primary s
 
 ### API
 
-`GET /options[?symbol=XXX]` — returns all warrants (or filtered by underlying) with latest EOD price and date from `endofday` join:
+`GET /options[?symbol=XXX][?option_symbol=XXXOA]` — returns all warrants (or filtered by underlying / by warrant code) with latest EOD price and date from `endofday` join. The `option_symbol=` reverse lookup is used by asx-web to resolve warrant announcements to the underlying (e.g. VR1O → VR1).
 
 ```json
 [{"option_symbol": "ACWOC", "expiry": "2027-09-30", "exercise": 0.05,

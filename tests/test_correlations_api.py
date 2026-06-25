@@ -154,12 +154,18 @@ def test_lag_filter(f):
     lag1_data = get('/api/analysis/correlations/db', lag_min=1, lag_max=1,  limit=1000)
     lag5_data = get('/api/analysis/correlations/db', lag_min=1, lag_max=5,  limit=1000)
 
-    f.check('lag_max=1 returns fewer rows than lag_max=20',
-            lag1_data['n'] < all_data['n'],
-            f'lag1={lag1_data["n"]} all={all_data["n"]}')
-    f.check('lag_max=5 returns fewer rows than lag_max=20',
-            lag5_data['n'] < all_data['n'],
-            f'lag5={lag5_data["n"]} all={all_data["n"]}')
+    distinct_lags = len({r['lag_days'] for r in all_data['results']})
+    if distinct_lags > 1:
+        # Range-count checks only meaningful when DB has multiple lag values
+        f.check('lag_max=1 returns fewer rows than lag_max=20',
+                lag1_data['n'] < all_data['n'],
+                f'lag1={lag1_data["n"]} all={all_data["n"]}')
+        f.check('lag_max=5 returns fewer rows than lag_max=20',
+                lag5_data['n'] < all_data['n'],
+                f'lag5={lag5_data["n"]} all={all_data["n"]}')
+    else:
+        print(f'  SKIP  row-count range checks (DB has only lag_days={distinct_lags} distinct value)')
+
     f.check('lag_max=5 returns more rows than lag_max=1',
             lag5_data['n'] >= lag1_data['n'],
             f'lag5={lag5_data["n"]} lag1={lag1_data["n"]}')
