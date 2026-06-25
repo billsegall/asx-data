@@ -110,15 +110,13 @@ def main():
             expiry     = format_expiry(ct.lastTradeDateOrContractMonth or '')
             exercise   = ct.strike or 0.0
             share_name = d.longName or underlying
-            note       = ct.right or None
-
             if not expiry or not exercise:
                 print(f"  SKIP {local_sym}: missing expiry or strike")
                 continue
 
-            updates.append((expiry, exercise, share_name, note, local_sym))
+            updates.append((expiry, exercise, share_name, local_sym))
             found += 1
-            print(f"  {local_sym}: {share_name} | strike={exercise} | expiry={expiry} | right={note}")
+            print(f"  {local_sym}: {share_name} | strike={exercise} | expiry={expiry} | right={ct.right}")
 
         time.sleep(0.05)
 
@@ -128,12 +126,51 @@ def main():
     print(f"\nUpdating {len(updates)} warrants in database...")
     db.executemany("""
         UPDATE asx_options
-        SET expiry=?, exercise=?, share_name=?, note=?, fetched_at=datetime('now')
+        SET expiry=?, exercise=?, share_name=?, fetched_at=datetime('now')
         WHERE option_symbol=?
     """, updates)
     db.commit()
 
     print(f"Done. Queried {queried} underlyings, updated {found}/{len(rows_db)} warrants.")
+
+    # Phase 3: adjust exercise prices for corporate events (consolidations/splits)
+    # that occurred after the warrant was last fetched from IB.
+    # Warrants updated in Phase 2 have fetched_at=now, so they won't match here
+    # (IB already gave us the adjusted strike). Only warrants IB couldn't find
+    # retain old fetched_at and may need adjustment.
+    print("\nChecking for unadjusted consolidations/splits since last IB fetch...")
+    stale_rows = db.execute("""
+        SELECT o.option_symbol, o.exercise,
+               e.date AS event_ts, e.ratio, e.description
+        FROM asx_options o
+        JOIN corporate_events e ON e.symbol = o.share_symbol
+        WHERE e.event_type IN ('consolidation', 'split')
+          AND e.date > strftime('%s', o.fetched_at)
+        ORDER BY o.option_symbol, e.date
+    """).fetchall()
+
+    # Accumulate all events per warrant in chronological order
+    pending: dict[str, dict] = {}
+    for row in stale_rows:
+        sym = row['option_symbol']
+        if sym not in pending:
+            pending[sym] = {'original': row['exercise'], 'exercise': row['exercise'], 'descriptions': []}
+        pending[sym]['exercise'] = round(pending[sym]['exercise'] / row['ratio'], 6)
+        pending[sym]['descriptions'].append(row['description'])
+
+    if pending:
+        for sym, data in pending.items():
+            note = 'post ' + ', '.join(data['descriptions'])
+            db.execute(
+                "UPDATE asx_options SET exercise=?, note=?, fetched_at=datetime('now') WHERE option_symbol=?",
+                (data['exercise'], note, sym)
+            )
+            print(f"  {sym}: exercise adjusted {data['original']:.6g} → {data['exercise']:.6g}  ({note})")
+        db.commit()
+        print(f"  Adjusted {len(pending)} warrant(s).")
+    else:
+        print("  None.")
+
     db.close()
 
 
