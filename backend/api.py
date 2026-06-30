@@ -88,6 +88,32 @@ def _migrate_kronos_history():
 _migrate_kronos_history()
 
 
+def _migrate_currencies():
+    """Create currency_meta and currency_prices tables if absent."""
+    c = stocks.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS currency_meta (
+        id              TEXT PRIMARY KEY,
+        base            TEXT NOT NULL,
+        quote           TEXT NOT NULL,
+        yf_symbol       TEXT NOT NULL,
+        group_name      TEXT,
+        price           REAL,
+        change_pct_24h  REAL,
+        updated_at      TEXT
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS currency_prices (
+        id      TEXT    NOT NULL,
+        date    INTEGER NOT NULL,
+        close   REAL    NOT NULL,
+        PRIMARY KEY (id, date)
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_currency_prices ON currency_prices(id, date)')
+    stocks.commit()
+
+
+_migrate_currencies()
+
+
 ## Utility
 
 def millify(n):
@@ -1008,6 +1034,47 @@ def api_crypto():
             'change_pct_24h': change_pct_24h,
             'market_cap':     market_cap,
             'volume_24h':     volume_24h,
+            'updated_at':     updated_at,
+            'sparkline':      sparklines.get(cid, []),
+        })
+    return jsonify(result)
+
+
+@app.route('/api/currencies')
+def api_currencies():
+    """FX currency pairs from currency_meta with 30-day sparklines."""
+    c = stocks.cursor()
+    try:
+        rows = c.execute(
+            'SELECT id, base, quote, group_name, price, change_pct_24h, updated_at '
+            'FROM currency_meta ORDER BY group_name, id'
+        ).fetchall()
+    except Exception:
+        return jsonify({'error': 'currency tables not available'}), 503
+
+    spark_cutoff = int(time.time() - 30 * 86400)
+    try:
+        spark_rows = c.execute(
+            'SELECT id, date, close FROM currency_prices WHERE date >= ? ORDER BY id, date',
+            (spark_cutoff,)
+        ).fetchall()
+    except Exception:
+        spark_rows = []
+
+    sparklines = {}
+    for r in spark_rows:
+        sparklines.setdefault(r[0], []).append([r[1] * 1000, r[2]])
+
+    result = []
+    for r in rows:
+        cid, base, quote, group_name, price, change_pct_24h, updated_at = r
+        result.append({
+            'id':             cid,
+            'base':           base,
+            'quote':          quote,
+            'group_name':     group_name,
+            'price':          price,
+            'change_pct_24h': change_pct_24h,
             'updated_at':     updated_at,
             'sparkline':      sparklines.get(cid, []),
         })
