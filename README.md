@@ -203,3 +203,116 @@ Captures warrant closing prices at end of each trading day. IB Gateway primary s
 ```
 
 Live price endpoint in asx-web: `POST /api/option-quotes` — IB Gateway primary, Markit fallback, smart market-hours caching.
+
+## Symbol Changes
+
+ASX ticker renames (e.g. company rebrands, mergers). Displayed on the stock chart page as a historical annotation.
+
+### `symbol_changes`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `old_symbol` | `TEXT NOT NULL` | Previous ASX ticker |
+| `new_symbol` | `TEXT NOT NULL` | New ASX ticker |
+| `effective_date` | `TEXT NOT NULL` | YYYY-MM-DD |
+| PRIMARY KEY | `(old_symbol, new_symbol, effective_date)` | |
+
+Populated by `asx-data/scripts/fetch_symbol_changes.py` (daily cron).
+
+`GET /symbol-changes?symbol=XXX` — returns changes for one symbol (old or new).
+
+---
+
+## Crypto Prices
+
+Top-100 cryptocurrencies by market cap, with daily OHLCV history. Data from CoinGecko (metadata + rankings) and yfinance (price history). Displayed at `/crypto`.
+
+### `crypto_meta`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT PRIMARY KEY` | Ticker symbol (e.g. `BTC`, `ETH`) |
+| `name` | `TEXT NOT NULL` | Full name (e.g. `Bitcoin`) |
+| `cg_id` | `TEXT` | CoinGecko slug (e.g. `bitcoin`) |
+| `yf_symbol` | `TEXT` | yfinance symbol (e.g. `BTC-USD`) |
+| `rank` | `INTEGER` | Market cap rank |
+| `price` | `REAL` | Latest price (USD) |
+| `change_pct_24h` | `REAL` | 24h change as a percentage |
+| `market_cap` | `REAL` | Market capitalisation (USD) |
+| `volume_24h` | `REAL` | 24h trading volume (USD) |
+| `updated_at` | `TEXT` | ISO datetime of last fetch |
+
+### `crypto_prices`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT NOT NULL` | Matches `crypto_meta.id` |
+| `date` | `INTEGER NOT NULL` | Unix timestamp (midnight UTC) |
+| `open` / `high` / `low` / `close` | `REAL` | OHLCV (USD) |
+| `volume` | `REAL` | |
+| PRIMARY KEY | `(id, date)` | |
+
+Populated by `scripts/fetch_crypto.py` (daily 21:30 UTC). First run: `--backfill` loads 2 years.
+
+`GET /api/crypto` — all coins with 30-day sparklines. `GET /api/crypto/<id>` — full history for one coin.
+
+---
+
+## Currency Pairs (FX)
+
+Daily FX rates for 14 pairs: 8 AUD-centric pairs and 6 major crosses. Data from Yahoo Finance via yfinance. Displayed at `/currencies`.
+
+### `currency_meta`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT PRIMARY KEY` | Pair ID (e.g. `AUDUSD`, `EURUSD`) |
+| `base` | `TEXT NOT NULL` | Base currency (e.g. `AUD`) |
+| `quote` | `TEXT NOT NULL` | Quote currency (e.g. `USD`) |
+| `yf_symbol` | `TEXT NOT NULL` | yfinance ticker (e.g. `AUDUSD=X`) |
+| `group_name` | `TEXT` | `'AUD Pairs'` or `'Majors'` |
+| `price` | `REAL` | Latest rate (quote per 1 base unit) |
+| `change_pct_24h` | `REAL` | 24h change as a percentage |
+| `updated_at` | `TEXT` | ISO datetime of last fetch |
+
+### `currency_prices`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT NOT NULL` | Matches `currency_meta.id` |
+| `date` | `INTEGER NOT NULL` | Unix timestamp (midnight UTC) |
+| `close` | `REAL NOT NULL` | Daily close rate |
+| PRIMARY KEY | `(id, date)` | |
+
+Populated by `scripts/fetch_currencies.py` (daily 21:35 UTC). First run: `--backfill` loads 2 years.
+
+Pairs tracked:
+
+| Group | Pairs |
+|-------|-------|
+| AUD Pairs | AUD/USD, AUD/EUR, AUD/GBP, AUD/JPY, AUD/NZD, AUD/CNY, AUD/CAD, AUD/SGD |
+| Majors | EUR/USD, GBP/USD, USD/JPY, USD/CAD, USD/CHF, NZD/USD |
+
+`GET /api/currencies` — all pairs with 30-day sparklines. `GET /api/currencies/<id>` — full history + 52w high/low.
+
+---
+
+## Kronos Predictions
+
+Snapshot history of Kronos model prediction runs. One row per (run, symbol). Enables comparison across runs on the dashboard Kronos Top Picks panel.
+
+### `kronos_predictions`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `generated_at` | `TEXT NOT NULL` | ISO datetime of the prediction run |
+| `symbol` | `TEXT NOT NULL` | ASX ticker |
+| `score` | `REAL NOT NULL` | Predicted 5-day forward return score |
+| `date` | `INTEGER NOT NULL` | Unix timestamp of the prediction date |
+| `name` | `TEXT` | Company name |
+| `industry` | `TEXT` | Industry group |
+
+Populated by the Kronos analysis pipeline on realiti (GPU machine), synced to harri via `analysis/sync.sh`. Predictions stored via `POST /api/analysis/kronos-predictions`.
+
+`GET /api/analysis/kronos-predictions` — latest run. `GET /api/analysis/kronos-predictions/history` — all historical runs for comparison.
