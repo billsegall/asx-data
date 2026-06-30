@@ -1081,6 +1081,44 @@ def api_currencies():
     return jsonify(result)
 
 
+@app.route('/api/currencies/<pair_id>')
+def api_currency_detail(pair_id):
+    """Full close history for one FX pair. Optional ?start=YYYYMMDD&end=YYYYMMDD."""
+    pair_id = pair_id.strip().upper()
+    c = stocks.cursor()
+    try:
+        meta = c.execute(
+            'SELECT id, base, quote, group_name, price, change_pct_24h, updated_at FROM currency_meta WHERE id = ?',
+            (pair_id,)
+        ).fetchone()
+        if not meta:
+            return jsonify({'error': f'Unknown pair {pair_id!r}'}), 404
+        start_ts = _parse_date_arg(request.args.get('start'), default_days_ago=365 * 100)
+        end_ts   = _parse_date_arg(request.args.get('end'),   default_days_ago=0)
+        rows = c.execute(
+            'SELECT date, close FROM currency_prices WHERE id = ? AND date >= ? AND date <= ? ORDER BY date',
+            (pair_id, start_ts, end_ts)
+        ).fetchall()
+    except Exception:
+        return jsonify({'error': 'currency tables not available'}), 503
+
+    cid, base, quote, group_name, price, change_pct_24h, updated_at = meta
+    prices = [[r[0] * 1000, r[1]] for r in rows]
+    closes = [r[1] for r in rows if r[1] is not None]
+    return jsonify({
+        'id':             cid,
+        'base':           base,
+        'quote':          quote,
+        'group_name':     group_name,
+        'price':          price,
+        'change_pct_24h': change_pct_24h,
+        'updated_at':     updated_at,
+        'prices':         prices,
+        'high_52w':       max(closes[-365:]) if len(closes) >= 1 else None,
+        'low_52w':        min(closes[-365:]) if len(closes) >= 1 else None,
+    })
+
+
 @app.route('/api/crypto/<crypto_id>')
 def api_crypto_detail(crypto_id):
     """OHLCV history for one crypto. Optional ?start=YYYYMMDD&end=YYYYMMDD."""
