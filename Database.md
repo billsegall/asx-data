@@ -138,6 +138,172 @@ API endpoint: `GET /api/dividends/<symbol>` — returns `ex_date` in millisecond
 
 Note: franking percentage is not available from Yahoo Finance; would require scraping ASX.com.au.
 
+### `shares_history`
+Year-end shares-outstanding snapshots derived from annual reports. One row per (symbol, year).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `symbol` | `TEXT NOT NULL` | ASX ticker |
+| `year` | `INTEGER NOT NULL` | Calendar year (year-end snapshot) |
+| `date` | `TEXT NOT NULL` | YYYY-MM-DD of the actual last data point |
+| `shares` | `INTEGER NOT NULL` | Shares outstanding |
+| `fetched_at` | `TEXT NOT NULL` | ISO datetime of fetch |
+| PRIMARY KEY | `(symbol, year)` | |
+
+### `events`
+Corporate calendar events from Yahoo Finance (ex-dividend dates, earnings dates, etc.).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `symbol` | `TEXT NOT NULL` | ASX ticker |
+| `event_date` | `INTEGER NOT NULL` | Unix timestamp |
+| `end_date` | `INTEGER` | Unix timestamp (for multi-day events) |
+| `event_type` | `TEXT NOT NULL` | e.g. `'Dividends'`, `'Earnings Date'` |
+| `title` | `TEXT NOT NULL` | Display label |
+| `description` | `TEXT` | Additional detail |
+| `is_estimate` | `INTEGER NOT NULL DEFAULT 0` | 1 if date is estimated |
+| `source` | `TEXT NOT NULL DEFAULT 'yfinance'` | Data source |
+| `fetched_at` | `TEXT NOT NULL` | ISO datetime of fetch |
+| UNIQUE | `(symbol, event_date, event_type)` | |
+
+### `financials_annual`
+Annual income statement, cash flow, and balance sheet from Yahoo Finance. One row per (symbol, fiscal_year_end).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `symbol` | `TEXT NOT NULL` | ASX ticker |
+| `fiscal_year_end` | `TEXT NOT NULL` | YYYY-MM-DD |
+| `fetched_at` | `TEXT NOT NULL` | ISO datetime of fetch |
+| `total_revenue` | `REAL` | |
+| `gross_profit` | `REAL` | |
+| `operating_income` | `REAL` | |
+| `net_income` | `REAL` | |
+| `ebitda` | `REAL` | |
+| `basic_eps` | `REAL` | |
+| `interest_expense` | `REAL` | |
+| `tax_provision` | `REAL` | |
+| `operating_cashflow` | `REAL` | |
+| `free_cashflow` | `REAL` | |
+| `capital_expenditure` | `REAL` | |
+| `dividends_paid` | `REAL` | |
+| `total_assets` | `REAL` | |
+| `total_debt` | `REAL` | |
+| `stockholders_equity` | `REAL` | |
+| `cash` | `REAL` | |
+| `total_liabilities` | `REAL` | |
+| PRIMARY KEY | `(symbol, fiscal_year_end)` | |
+
+### `commodity_meta`
+Reference table for tracked commodities.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT PRIMARY KEY` | e.g. `'GOLD'`, `'COPPER'` |
+| `name` | `TEXT NOT NULL` | Display name |
+| `unit` | `TEXT` | Price unit, e.g. `'USD/troy oz'` |
+| `te_symbol` | `TEXT` | Trading Economics symbol |
+| `yf_symbol` | `TEXT` | Yahoo Finance symbol, e.g. `'GC=F'` |
+| `metals_dev_key` | `TEXT` | metals.dev API key name |
+| `te_no_access` | `INTEGER NOT NULL DEFAULT 0` | 1 if TE blocks this commodity |
+
+### `commodity_prices`
+Daily commodity price history.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT NOT NULL` | FK → `commodity_meta.id` |
+| `date` | `INTEGER NOT NULL` | Unix timestamp |
+| `price` | `REAL NOT NULL` | In commodity-specific units (see `commodity_meta.unit`) |
+| PRIMARY KEY | `(id, date)` | |
+
+Populated by `scripts/fetch_commodities.py`, `fetch_trading_economics.py`, `fetch_metals_dev.py`, `fetch_manganese.py`.
+
+### `crypto_meta`
+Current metadata and price for tracked cryptocurrencies.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT PRIMARY KEY` | CoinGecko ID, e.g. `'bitcoin'` |
+| `name` | `TEXT NOT NULL` | Display name |
+| `cg_id` | `TEXT` | CoinGecko ID (same as `id`) |
+| `yf_symbol` | `TEXT` | Yahoo Finance symbol, e.g. `'BTC-USD'` |
+| `rank` | `INTEGER` | CoinGecko market cap rank |
+| `price` | `REAL` | Current price (USD) |
+| `change_pct_24h` | `REAL` | 24-hour price change % |
+| `market_cap` | `REAL` | Market cap (USD) |
+| `volume_24h` | `REAL` | 24-hour trading volume (USD) |
+| `updated_at` | `TEXT` | ISO datetime of last update |
+
+### `crypto_prices`
+Daily OHLCV history for cryptocurrencies.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT NOT NULL` | FK → `crypto_meta.id` |
+| `date` | `INTEGER NOT NULL` | Unix timestamp |
+| `open` | `REAL` | |
+| `high` | `REAL` | |
+| `low` | `REAL` | |
+| `close` | `REAL NOT NULL` | |
+| `volume` | `REAL` | |
+| PRIMARY KEY | `(id, date)` | |
+
+Populated by `scripts/fetch_crypto.py` (daily). Top 100 by CoinGecko market cap rank.
+
+### `currency_meta`
+Current metadata and rate for tracked FX pairs.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT PRIMARY KEY` | e.g. `'AUDUSD'` |
+| `base` | `TEXT NOT NULL` | Base currency, e.g. `'AUD'` |
+| `quote` | `TEXT NOT NULL` | Quote currency, e.g. `'USD'` |
+| `yf_symbol` | `TEXT NOT NULL` | Yahoo Finance ticker, e.g. `'AUDUSD=X'` |
+| `group_name` | `TEXT` | `'AUD Pairs'` or `'Majors'` |
+| `price` | `REAL` | Latest rate |
+| `change_pct_24h` | `REAL` | 24-hour change % |
+| `updated_at` | `TEXT` | ISO datetime of last update |
+
+### `currency_prices`
+Daily close history for FX pairs.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `TEXT NOT NULL` | FK → `currency_meta.id` |
+| `date` | `INTEGER NOT NULL` | Unix timestamp |
+| `close` | `REAL NOT NULL` | Daily close rate |
+| PRIMARY KEY | `(id, date)` | |
+
+Populated by `scripts/fetch_currencies.py` (daily 21:35 UTC). 14 pairs: 8 AUD-centric + 6 major crosses.
+API: `GET /api/currencies`, `GET /api/currencies/<id>`.
+
+### `kronos_predictions`
+ML forward-return predictions from the Kronos fine-tuned model. Each run generates one row per symbol.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | |
+| `generated_at` | `TEXT NOT NULL` | ISO datetime of prediction run |
+| `symbol` | `TEXT NOT NULL` | ASX ticker |
+| `score` | `REAL NOT NULL` | Predicted 5-day forward return score |
+| `date` | `INTEGER NOT NULL` | Unix timestamp of last data point used |
+| `name` | `TEXT` | Company name at time of prediction |
+| `industry` | `TEXT` | Industry at time of prediction |
+
+Populated by GPU pipeline on realiti; results rsync'd to harri. Indexed on `generated_at` and `symbol`.
+API: `GET /api/kronos/latest`, `GET /api/kronos/history`.
+
+### `eod_fetch_failures`
+Tracks consecutive end-of-day fetch failures per symbol (used to skip stale/delisted symbols).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `symbol` | `TEXT PRIMARY KEY` | ASX ticker |
+| `consecutive_misses` | `INTEGER NOT NULL DEFAULT 0` | |
+| `first_miss_date` | `TEXT NOT NULL` | YYYY-MM-DD |
+| `last_miss_date` | `TEXT NOT NULL` | YYYY-MM-DD |
+
 ### Market cap
 Computed live at query time: `symbols.shares × latest close from endofday`. No stale snapshot date.
 
@@ -146,6 +312,13 @@ Computed live at query time: `symbols.shares × latest close from endofday`. No 
 - Shorts: `fetch_shorts.py` → `shorts/YYYY.csv` (ASIC public CSVs, 2010–present)
 - OHLCV prices: purchased from eoddata.com; zip files in `asx-eod-data/zips/` (private submodule)
 - Splits/consolidations: `fetch_splits.py` → Yahoo Finance (run periodically)
+- Commodities: `fetch_commodities.py` (yfinance), `fetch_trading_economics.py`, `fetch_metals_dev.py`, `fetch_manganese.py`
+- Crypto: `fetch_crypto.py` (CoinGecko + yfinance, daily)
+- Currencies: `fetch_currencies.py` (yfinance, daily)
+- Fundamentals: `fetch_fundamentals.py` (yfinance, weekly)
+- Financials: `fetch_financials.py` (yfinance, as needed)
+- Dividends: `fetch_dividends.py` (yfinance, monthly)
+- Kronos predictions: GPU pipeline on realiti, rsync'd to harri
 
 ---
 
