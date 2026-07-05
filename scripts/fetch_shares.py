@@ -78,7 +78,7 @@ def main():
                         help='Fetch specific symbols only (default: all current)')
     args = parser.parse_args()
 
-    conn = sqlite3.connect(args.db)
+    conn = sqlite3.connect(args.db, timeout=30)
     conn.execute('PRAGMA journal_mode=WAL')
     create_table(conn)
 
@@ -88,7 +88,7 @@ def main():
         symbols = [r[0] for r in conn.execute(
             """SELECT s.symbol FROM symbols s
                WHERE s.current = 1
-               AND s.symbol NOT IN ('XAO')
+               AND s.symbol NOT IN ('XAO', 'XJO')
                AND EXISTS (
                    SELECT 1 FROM endofday e
                    WHERE e.symbol = s.symbol
