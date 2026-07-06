@@ -53,6 +53,13 @@ python3 -m analysis.cli.run_industry_correlations \
     --min-symbols 5
 
 echo ""
+echo "==> Running EOFY tax-loss/gain correlation analysis..."
+python3 -m analysis.cli.run_eofy_correlation \
+    --db "$LOCAL_DB" \
+    --output-dir "$RESULTS_DIR" \
+    --min-years 5
+
+echo ""
 echo "==> Running warrant analysis..."
 python3 -m analysis.cli.run_warrants \
     --db "$LOCAL_DB" \

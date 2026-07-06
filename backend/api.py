@@ -1724,6 +1724,182 @@ def api_analysis_correlations_db():
 
 
 # ---------------------------------------------------------------------------
+# EOFY tax-loss/gain correlation — per-stock Q1-3 vs Q4 return correlation
+# ---------------------------------------------------------------------------
+
+EOFY_DB_PATH = os.path.join(ANALYSIS_RESULTS_DIR, 'eofy_correlation.db')
+
+
+def _eofy_db_conn():
+    """Open eofy_correlation.db read-only. Caller must close."""
+    conn = sqlite3.connect(EOFY_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA query_only = ON')
+    return conn
+
+
+@app.route('/api/analysis/eofy-correlations/industries')
+def api_analysis_eofy_correlations_industries():
+    """List industries present in eofy_correlation, with per-industry counts."""
+    if not os.path.exists(EOFY_DB_PATH):
+        return jsonify({'error': 'No EOFY correlation database available'}), 404
+    try:
+        conn = _eofy_db_conn()
+        rows = conn.execute(
+            """SELECT industry, COUNT(*) AS n_stocks,
+                      SUM(CASE WHEN fdr_p < 0.05 THEN 1 ELSE 0 END) AS n_significant,
+                      MAX(run_at) AS run_at
+               FROM eofy_correlation
+               GROUP BY industry
+               ORDER BY industry ASC"""
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/analysis/eofy-correlations')
+def api_analysis_eofy_correlations():
+    """Filtered query on the eofy_correlation table.
+
+    Query params:
+      industry     — exact match
+      mcap_min     — minimum market cap (raw dollars)
+      mcap_max     — maximum market cap (raw dollars)
+      min_r        — minimum |r| (default 0)
+      min_n_years  — minimum included FYs (default 0)
+      max_fdr_p    — maximum fdr_p (default 1.0, i.e. no filter)
+      direction    — 'positive' | 'negative' | '' (both)
+      sort         — 'r' | 'fdr_p' | 'n_years' | 'symbol' | 'industry' (default 'r')
+      order        — 'asc' | 'desc' (default 'desc')
+      limit        — max rows, capped at 5000 (default 500)
+    """
+    if not os.path.exists(EOFY_DB_PATH):
+        return jsonify({'error': 'No EOFY correlation database available'}), 404
+
+    industry    = request.args.get('industry', '').strip()
+    mcap_min    = request.args.get('mcap_min', '').strip()
+    mcap_max    = request.args.get('mcap_max', '').strip()
+    min_r       = abs(float(request.args.get('min_r', 0) or 0))
+    min_n_years = max(0, int(request.args.get('min_n_years', 0) or 0))
+    max_fdr_p   = float(request.args.get('max_fdr_p', 1.0) or 1.0)
+    direction   = request.args.get('direction', '').strip().lower()
+    sort_col    = request.args.get('sort', 'r').strip()
+    order_dir   = request.args.get('order', 'desc').strip().lower()
+    limit       = min(5000, max(1, int(request.args.get('limit', 500) or 500)))
+
+    _ALLOWED_SORT = {'r', 'fdr_p', 'n_years', 'symbol', 'industry'}
+    if sort_col not in _ALLOWED_SORT:
+        sort_col = 'r'
+    if order_dir not in ('asc', 'desc'):
+        order_dir = 'desc'
+
+    clauses = []
+    params  = []
+
+    if industry:
+        clauses.append('industry = ?'); params.append(industry)
+    if mcap_min:
+        clauses.append('market_cap >= ?'); params.append(float(mcap_min))
+    if mcap_max:
+        clauses.append('market_cap <= ?'); params.append(float(mcap_max))
+    if min_r > 0:
+        clauses.append('(r >= ? OR r <= ?)'); params.extend([min_r, -min_r])
+    if min_n_years > 0:
+        clauses.append('n_years >= ?'); params.append(min_n_years)
+    if direction in ('positive', 'negative'):
+        clauses.append('direction = ?'); params.append(direction)
+    clauses.append('fdr_p <= ?'); params.append(max_fdr_p)
+
+    where_sql = ' AND '.join(clauses)
+    order_expr = f'ABS(r) {order_dir}' if sort_col == 'r' else f'{sort_col} {order_dir}'
+    sql = f"""
+        SELECT symbol, industry, n_years, r, p_value, fdr_p, direction,
+               mean_q13_return, mean_q4_return, std_q13_return, std_q4_return,
+               first_fy, last_fy, market_cap, n_outliers_excluded, run_at
+        FROM eofy_correlation
+        WHERE {where_sql}
+        ORDER BY {order_expr}
+        LIMIT ?
+    """
+    params.append(limit)
+
+    try:
+        conn = _eofy_db_conn()
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'n': len(rows),
+        'results': [dict(r) for r in rows],
+    })
+
+
+@app.route('/api/analysis/eofy-correlations/<symbol>')
+def api_analysis_eofy_correlations_symbol(symbol):
+    """Per-symbol FY-by-FY detail with a fitted OLS regression line."""
+    if not os.path.exists(EOFY_DB_PATH):
+        return jsonify({'error': 'No EOFY correlation database available'}), 404
+    symbol = symbol.strip().upper()
+    try:
+        conn = _eofy_db_conn()
+        row = conn.execute(
+            """SELECT symbol, industry, n_years, r, p_value, fdr_p, direction,
+                      mean_q13_return, mean_q4_return, std_q13_return, std_q4_return,
+                      first_fy, last_fy, market_cap, n_outliers_excluded, fy_detail_json, run_at
+               FROM eofy_correlation WHERE symbol = ?""",
+            (symbol,)
+        ).fetchone()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    if row is None:
+        return jsonify({'error': f'No EOFY correlation data for {symbol}'}), 404
+
+    fy_detail = json.loads(row['fy_detail_json'])
+    included = [d for d in fy_detail if not d['excluded']]
+
+    slope = intercept = None
+    if len(included) >= 2:
+        xs = [d['q13_return'] for d in included]
+        ys = [d['q4_return'] for d in included]
+        n = len(xs)
+        mean_x = sum(xs) / n
+        mean_y = sum(ys) / n
+        var_x = sum((x - mean_x) ** 2 for x in xs)
+        if var_x > 0:
+            cov_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+            slope = cov_xy / var_x
+            intercept = mean_y - slope * mean_x
+
+    return jsonify({
+        'symbol':          row['symbol'],
+        'industry':        row['industry'],
+        'n_years':         row['n_years'],
+        'r':               row['r'],
+        'p_value':         row['p_value'],
+        'fdr_p':           row['fdr_p'],
+        'direction':       row['direction'],
+        'mean_q13_return': row['mean_q13_return'],
+        'mean_q4_return':  row['mean_q4_return'],
+        'std_q13_return':  row['std_q13_return'],
+        'std_q4_return':   row['std_q4_return'],
+        'first_fy':        row['first_fy'],
+        'last_fy':         row['last_fy'],
+        'market_cap':      row['market_cap'],
+        'n_outliers_excluded': row['n_outliers_excluded'],
+        'run_at':          row['run_at'],
+        'slope':           slope,
+        'intercept':       intercept,
+        'fy_detail':       fy_detail,
+    })
+
+
+# ---------------------------------------------------------------------------
 # Correlation backtests — parameterized, multi-config
 # ---------------------------------------------------------------------------
 

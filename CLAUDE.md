@@ -53,6 +53,9 @@ docker compose up
 - `GET /api/analysis/backtest` — backtest reports
 - `GET /api/analysis/discovery` — IC sweep results
 - `GET /api/analysis/portfolio` — portfolio backtest series data
+- `GET /api/analysis/eofy-correlations` — per-stock EOFY tax-loss/gain correlation (own Q1-3 return vs own Q4 return, across FYs); filters: `industry`, `mcap_min`, `mcap_max`, `min_r`, `min_n_years`, `max_fdr_p`, `sort`, `order`, `limit`
+- `GET /api/analysis/eofy-correlations/industries` — per-industry counts for the above
+- `GET /api/analysis/eofy-correlations/<symbol>` — per-symbol FY-by-FY detail + OLS slope/intercept
 
 ### Analysis web pages
 - `GET /signals` — signal rankings dashboard (`backend/signals.html`)
@@ -102,6 +105,16 @@ GPU-accelerated signal research pipeline. Runs on a local GPU machine; results r
 - **VolumeAnomalySignal** — log-volume z-score × sign(5d return)
 - CommodityLeadSignal, AnnouncementSignal — placeholders
 
+### EOFY tax-loss/gain correlation (`analysis/eofy_correlation/`)
+Per-stock (not cross-sectional) test: does a symbol's own Jul-Mar (Q1-3) return
+correlate with its own Apr-Jun (Q4) return, across every FY in its history?
+Plain CPU pipeline (pandas/scipy Pearson r + BH-FDR) — deliberately does not
+import `analysis.core` (avoids the torch dependency pulled in by
+`feature_matrix`/`gpu_ops`), so it runs fine on machines without a GPU/torch.
+Guards: excludes any FY with a `corporate_events` split/consolidation inside
+its window, and any single-quarter return with `abs(return) > 300%` (likely
+an un-adjusted-split artifact). Results in `analysis/results/eofy_correlation.db`.
+
 ### CLI scripts (run from repo root)
 ```bash
 python -m analysis.cli.run_predictions --db stockdb/stockdb.db      # current signal scores
@@ -109,6 +122,7 @@ python -m analysis.cli.run_signals --db stockdb/stockdb.db          # signals on
 python -m analysis.cli.run_backtest --db stockdb/stockdb.db         # backtest all signals
 python -m analysis.cli.run_discovery --db stockdb/stockdb.db        # IC sweep (slow, ~30 min)
 python -m analysis.cli.run_portfolio_backtest --db stockdb/stockdb.db  # portfolio backtest
+python -m analysis.cli.run_eofy_correlation --db stockdb/stockdb.db --output-dir analysis/results  # EOFY correlation
 ```
 
 ### Train/test split
