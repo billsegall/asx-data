@@ -24,7 +24,13 @@ SSH_KEY="${REALITI_SSH_KEY:-$HOME/.ssh/id_ed25519_VMs}"
 
 REMOTE_LOG="/tmp/kronos_sync_$(date +%Y%m%d_%H%M%S).log"
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Triggering Kronos refresh on $REALITI_HOST" | tee "$LOG"
+source "$SCRIPT_DIR/wake_realiti.sh"
+if ! ensure_realiti_up | tee -a "$LOG"; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Aborting — realiti unreachable" | tee -a "$LOG"
+    exit 1
+fi
+
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Triggering Kronos refresh on $REALITI_HOST" | tee -a "$LOG"
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Remote log: $REALITI_HOST:$REMOTE_LOG" | tee -a "$LOG"
 
 # Launch sync.sh detached — nohup + </dev/null so SSH exits immediately.
