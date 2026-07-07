@@ -26,7 +26,9 @@ REALITI_SSH_KEY="${REALITI_SSH_KEY:-$HOME/.ssh/id_ed25519_VMs}"
 REALITI_WAKE_TIMEOUT="${REALITI_WAKE_TIMEOUT:-300}"
 
 _realiti_ssh_probe() {
-    ssh -i "$REALITI_SSH_KEY" -o BatchMode=yes -o ConnectTimeout=8 \
+    # `command ssh` bypasses any interactive-shell ssh() wrapper function
+    # (e.g. terminal-title helpers) that can swallow the real exit code.
+    command ssh -i "$REALITI_SSH_KEY" -o BatchMode=yes -o ConnectTimeout=8 \
         -o StrictHostKeyChecking=accept-new "$REALITI_HOST" "true" 2>/dev/null
 }
 
