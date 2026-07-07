@@ -42,10 +42,25 @@ ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=30 \
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job launched — waiting 6 minutes for completion..." | tee -a "$LOG"
 sleep 360
 
-# Fetch the remote log regardless of exit status
+# Fetch the remote log regardless of exit status — retry a few times since
+# the WSL guest's network can drop transiently even after the job itself
+# (which runs detached via nohup) has completed successfully.
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Fetching remote log..." | tee -a "$LOG"
-ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=30 \
-    -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$REALITI_HOST" \
-    "cat '$REMOTE_LOG' 2>/dev/null || echo '(remote log not found)'" | tee -a "$LOG"
+FETCHED=""
+for attempt in 1 2 3 4 5; do
+    if FETCHED=$(ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=15 \
+        -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$REALITI_HOST" \
+        "cat '$REMOTE_LOG' 2>/dev/null || echo '(remote log not found)'" 2>/dev/null); then
+        break
+    fi
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Fetch attempt $attempt/5 failed (realiti unreachable), retrying in 20s..." | tee -a "$LOG"
+    sleep 20
+    FETCHED=""
+done
+if [[ -z "$FETCHED" ]]; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Could not fetch remote log after 5 attempts — job was launched fine, this is just log retrieval failing. Check stockdb.db kronos_predictions table to confirm the run landed." | tee -a "$LOG"
+else
+    echo "$FETCHED" | tee -a "$LOG"
+fi
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Done" | tee -a "$LOG"
