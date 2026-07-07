@@ -56,6 +56,9 @@ docker compose up
 - `GET /api/analysis/eofy-correlations` — per-stock EOFY tax-loss/gain correlation (own Q1-3 return vs own Q4 return, across FYs); filters: `industry`, `mcap_min`, `mcap_max`, `min_r`, `min_n_years`, `max_fdr_p`, `sort`, `order`, `limit`
 - `GET /api/analysis/eofy-correlations/industries` — per-industry counts for the above
 - `GET /api/analysis/eofy-correlations/<symbol>` — per-symbol FY-by-FY detail + OLS slope/intercept
+- `GET /api/analysis/eofy-correlations/windows` — sub-window definitions (Late May day57-70 / Rest of Q4 day71-91) + run stats
+- `GET /api/analysis/eofy-correlations/window/<A|B>` — same filters as `/eofy-correlations`, tested against Q1-3 vs that sub-window instead of full Q4
+- `GET /api/analysis/eofy-correlations/window/<A|B>/<symbol>` — per-symbol sub-window FY detail + OLS fit
 
 ### Analysis web pages
 - `GET /signals` — signal rankings dashboard (`backend/signals.html`)
@@ -115,6 +118,15 @@ Guards: excludes any FY with a `corporate_events` split/consolidation inside
 its window, and any single-quarter return with `abs(return) > 300%` (likely
 an un-adjusted-split artifact). Results in `analysis/results/eofy_correlation.db`.
 
+`analysis/eofy_correlation/window_pipeline.py` tests two Q4 sub-windows —
+Late May (day57-70) and Rest of Q4 (day71-91, to Jun 30) — against the same
+Q1-3 return, for every eligible current symbol (not a pre-selected subset).
+Found by an earlier investigative weekly breakdown (13 weeks of Q4, pooled
+over the top-50 |r| stocks) that showed the Full-Quarter effect concentrated
+in two adjacent weeks rather than spread evenly. Same guards as above;
+results in the same DB (`eofy_window_correlation` / `eofy_window_definitions`
+tables). Run via `run_eofy_window_compare`, below.
+
 ### CLI scripts (run from repo root)
 ```bash
 python -m analysis.cli.run_predictions --db stockdb/stockdb.db      # current signal scores
@@ -123,6 +135,7 @@ python -m analysis.cli.run_backtest --db stockdb/stockdb.db         # backtest a
 python -m analysis.cli.run_discovery --db stockdb/stockdb.db        # IC sweep (slow, ~30 min)
 python -m analysis.cli.run_portfolio_backtest --db stockdb/stockdb.db  # portfolio backtest
 python -m analysis.cli.run_eofy_correlation --db stockdb/stockdb.db --output-dir analysis/results  # EOFY correlation
+python -m analysis.cli.run_eofy_window_compare --db stockdb/stockdb.db --eofy-db analysis/results/eofy_correlation.db  # EOFY sub-window (Late May / Rest of Q4)
 ```
 
 ### Train/test split

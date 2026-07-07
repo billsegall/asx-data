@@ -1899,6 +1899,165 @@ def api_analysis_eofy_correlations_symbol(symbol):
     })
 
 
+@app.route('/api/analysis/eofy-correlations/windows')
+def api_analysis_eofy_correlations_windows():
+    """List the sub-window definitions (day57-70 / day71-91) with run stats."""
+    if not os.path.exists(EOFY_DB_PATH):
+        return jsonify({'error': 'No EOFY correlation database available'}), 404
+    try:
+        conn = _eofy_db_conn()
+        rows = conn.execute(
+            """SELECT window, label, start_day, end_day, n_tested, n_significant, run_at
+               FROM eofy_window_definitions ORDER BY window ASC"""
+        ).fetchall()
+        conn.close()
+    except sqlite3.OperationalError:
+        return jsonify([])
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/analysis/eofy-correlations/window/<window>')
+def api_analysis_eofy_correlations_window(window):
+    """Filtered query on eofy_window_correlation for one window ('A' or 'B').
+
+    Same query params as /api/analysis/eofy-correlations.
+    """
+    window = window.strip().upper()
+    if window not in ('A', 'B'):
+        return jsonify({'error': "window must be 'A' or 'B'"}), 400
+    if not os.path.exists(EOFY_DB_PATH):
+        return jsonify({'error': 'No EOFY correlation database available'}), 404
+
+    industry    = request.args.get('industry', '').strip()
+    mcap_min    = request.args.get('mcap_min', '').strip()
+    mcap_max    = request.args.get('mcap_max', '').strip()
+    min_r       = abs(float(request.args.get('min_r', 0) or 0))
+    min_n_years = max(0, int(request.args.get('min_n_years', 0) or 0))
+    max_fdr_p   = float(request.args.get('max_fdr_p', 1.0) or 1.0)
+    direction   = request.args.get('direction', '').strip().lower()
+    sort_col    = request.args.get('sort', 'r').strip()
+    order_dir   = request.args.get('order', 'desc').strip().lower()
+    limit       = min(5000, max(1, int(request.args.get('limit', 500) or 500)))
+
+    _ALLOWED_SORT = {'r', 'fdr_p', 'n_years', 'symbol', 'industry'}
+    if sort_col not in _ALLOWED_SORT:
+        sort_col = 'r'
+    if order_dir not in ('asc', 'desc'):
+        order_dir = 'desc'
+
+    clauses = ['window = ?']
+    params  = [window]
+
+    if industry:
+        clauses.append('industry = ?'); params.append(industry)
+    if mcap_min:
+        clauses.append('market_cap >= ?'); params.append(float(mcap_min))
+    if mcap_max:
+        clauses.append('market_cap <= ?'); params.append(float(mcap_max))
+    if min_r > 0:
+        clauses.append('(r >= ? OR r <= ?)'); params.extend([min_r, -min_r])
+    if min_n_years > 0:
+        clauses.append('n_years >= ?'); params.append(min_n_years)
+    if direction in ('positive', 'negative'):
+        clauses.append('direction = ?'); params.append(direction)
+    clauses.append('fdr_p <= ?'); params.append(max_fdr_p)
+
+    where_sql = ' AND '.join(clauses)
+    order_expr = f'ABS(r) {order_dir}' if sort_col == 'r' else f'{sort_col} {order_dir}'
+    sql = f"""
+        SELECT symbol, industry, n_years, r, p_value, fdr_p, direction,
+               mean_q13_return, mean_window_return, std_q13_return, std_window_return,
+               first_fy, last_fy, market_cap, n_outliers_excluded, run_at
+        FROM eofy_window_correlation
+        WHERE {where_sql}
+        ORDER BY {order_expr}
+        LIMIT ?
+    """
+    params.append(limit)
+
+    try:
+        conn = _eofy_db_conn()
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except sqlite3.OperationalError as exc:
+        return jsonify({'error': str(exc)}), 404
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'n': len(rows),
+        'results': [dict(r) for r in rows],
+    })
+
+
+@app.route('/api/analysis/eofy-correlations/window/<window>/<symbol>')
+def api_analysis_eofy_correlations_window_symbol(window, symbol):
+    """Per-symbol FY-by-FY detail (Q1-3 vs sub-window return) with OLS fit."""
+    window = window.strip().upper()
+    if window not in ('A', 'B'):
+        return jsonify({'error': "window must be 'A' or 'B'"}), 400
+    if not os.path.exists(EOFY_DB_PATH):
+        return jsonify({'error': 'No EOFY correlation database available'}), 404
+    symbol = symbol.strip().upper()
+    try:
+        conn = _eofy_db_conn()
+        row = conn.execute(
+            """SELECT symbol, industry, n_years, r, p_value, fdr_p, direction,
+                      mean_q13_return, mean_window_return, std_q13_return, std_window_return,
+                      first_fy, last_fy, market_cap, n_outliers_excluded, fy_detail_json, run_at
+               FROM eofy_window_correlation WHERE symbol = ? AND window = ?""",
+            (symbol, window)
+        ).fetchone()
+        conn.close()
+    except sqlite3.OperationalError as exc:
+        return jsonify({'error': str(exc)}), 404
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    if row is None:
+        return jsonify({'error': f'No EOFY window-{window} data for {symbol}'}), 404
+
+    fy_detail = json.loads(row['fy_detail_json'])
+
+    slope = intercept = None
+    if len(fy_detail) >= 2:
+        xs = [d['q13_return'] for d in fy_detail]
+        ys = [d['window_return'] for d in fy_detail]
+        n = len(xs)
+        mean_x = sum(xs) / n
+        mean_y = sum(ys) / n
+        var_x = sum((x - mean_x) ** 2 for x in xs)
+        if var_x > 0:
+            cov_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+            slope = cov_xy / var_x
+            intercept = mean_y - slope * mean_x
+
+    return jsonify({
+        'symbol':          row['symbol'],
+        'window':          window,
+        'industry':        row['industry'],
+        'n_years':         row['n_years'],
+        'r':               row['r'],
+        'p_value':         row['p_value'],
+        'fdr_p':           row['fdr_p'],
+        'direction':       row['direction'],
+        'mean_q13_return':    row['mean_q13_return'],
+        'mean_window_return': row['mean_window_return'],
+        'std_q13_return':     row['std_q13_return'],
+        'std_window_return':  row['std_window_return'],
+        'first_fy':        row['first_fy'],
+        'last_fy':         row['last_fy'],
+        'market_cap':      row['market_cap'],
+        'n_outliers_excluded': row['n_outliers_excluded'],
+        'run_at':          row['run_at'],
+        'slope':           slope,
+        'intercept':       intercept,
+        'fy_detail':       fy_detail,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Correlation backtests — parameterized, multi-config
 # ---------------------------------------------------------------------------

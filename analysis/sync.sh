@@ -60,6 +60,13 @@ python3 -m analysis.cli.run_eofy_correlation \
     --min-years 5
 
 echo ""
+echo "==> Running EOFY sub-window correlation analysis..."
+python3 -m analysis.cli.run_eofy_window_compare \
+    --db "$LOCAL_DB" \
+    --eofy-db "$RESULTS_DIR/eofy_correlation.db" \
+    --min-years 5
+
+echo ""
 echo "==> Running warrant analysis..."
 python3 -m analysis.cli.run_warrants \
     --db "$LOCAL_DB" \
