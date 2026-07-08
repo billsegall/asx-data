@@ -15,8 +15,10 @@ Usage:
 """
 
 import argparse
+import datetime
 import sqlite3
 
+import pandas as pd
 import numpy as np
 from scipy import stats
 
@@ -25,20 +27,17 @@ from analysis.eofy_correlation.pipeline import (
     _fy_boundaries,
     _load_corporate_event_dates,
     _load_eod,
+    _max_completed_fy_year,
     compute_fy_returns,
 )
 
-WEEKS_IN_Q4 = 13  # Apr 1 -> Jun 30 is exactly 91 days in a non-leap year
+WEEKS_IN_Q4 = 13     # Apr 1 -> Jun 30 is exactly 91 days in a non-leap year
+N_POST_WEEKS = 6     # weeks into the *next* FY (Jul 1 onward) to keep tracking
 
 
 def _week_boundaries(fy_year: int):
     _, _, q4_start, q4_end = _fy_boundaries(fy_year)
-    return [q4_start + pd_offset(7 * k) for k in range(WEEKS_IN_Q4 + 1)]
-
-
-def pd_offset(days):
-    import pandas as pd
-    return pd.Timedelta(days=days)
+    return [q4_start + pd.Timedelta(days=7 * k) for k in range(WEEKS_IN_Q4 + 1)]
 
 
 def compute_weekly_returns(dates_arr, closes_arr, fy_year):
@@ -47,6 +46,24 @@ def compute_weekly_returns(dates_arr, closes_arr, fy_year):
     closes = [_asof_close(dates_arr, closes_arr, b)[0] for b in boundaries]
     out = []
     for k in range(WEEKS_IN_Q4):
+        a, b = closes[k], closes[k + 1]
+        if a is None or b is None or a <= 0:
+            out.append(None)
+        else:
+            out.append(b / a - 1)
+    return out
+
+
+def compute_post_fye_returns(dates_arr, closes_arr, fy_year, n_weeks=N_POST_WEEKS):
+    """Weekly returns for n_weeks starting Jul 1 of the FY that just ended
+    (i.e. the start of the *next* FY's own Q1-3). Independent per-week —
+    unlike compute_weekly_returns, a missing later week doesn't drop earlier
+    ones, since the still-in-progress current FY only has partial data."""
+    anchor = pd.Timestamp(fy_year, 7, 1)
+    boundaries = [anchor + pd.Timedelta(days=7 * k) for k in range(n_weeks + 1)]
+    closes = [_asof_close(dates_arr, closes_arr, b)[0] for b in boundaries]
+    out = []
+    for k in range(n_weeks):
         a, b = closes[k], closes[k + 1]
         if a is None or b is None or a <= 0:
             out.append(None)
@@ -77,12 +94,12 @@ def main():
     corp_events = _load_corporate_event_dates(conn, top_symbols)
     conn.close()
 
-    import datetime
-    from analysis.eofy_correlation.pipeline import _max_completed_fy_year
     max_fy_year = _max_completed_fy_year(datetime.date.today())
 
-    # pooled[week_idx] = list of (q13_return, week_return)
+    # pooled[week_idx] = list of (q13_return, week_return) for weeks 1-13 (Q4 itself)
     pooled = {k: [] for k in range(WEEKS_IN_Q4)}
+    # post_pooled[week_idx] = list of (q13_return, week_return) for weeks past Jun 30
+    post_pooled = {k: [] for k in range(N_POST_WEEKS)}
     n_fy_pairs = 0
 
     for symbol, sub in eod.groupby('symbol', sort=False):
@@ -95,30 +112,41 @@ def main():
             if rec['excluded']:
                 continue
             week_rets = compute_weekly_returns(dates_arr, closes_arr, rec['fy_year'])
-            if any(w is None for w in week_rets):
-                continue
-            n_fy_pairs += 1
-            for k, wr in enumerate(week_rets):
-                pooled[k].append((rec['q13_return'], wr))
+            if all(w is not None for w in week_rets):
+                n_fy_pairs += 1
+                for k, wr in enumerate(week_rets):
+                    pooled[k].append((rec['q13_return'], wr))
 
-    print(f'Pooled (symbol, FY) pairs with complete weekly data: {n_fy_pairs}\n')
+            post_rets = compute_post_fye_returns(dates_arr, closes_arr, rec['fy_year'])
+            for k, wr in enumerate(post_rets):
+                if wr is not None:
+                    post_pooled[k].append((rec['q13_return'], wr))
 
-    q4_start_label = 'Apr 1'
-    print(f'{"Week":<6}{"Date range":<16}{"n":>6}{"r":>10}{"p-value":>12}')
-    for k in range(WEEKS_IN_Q4):
-        pairs = pooled[k]
+    print(f'Pooled (symbol, FY) pairs with complete Q4 weekly data: {n_fy_pairs}\n')
+
+    def _print_row(label_num, label, pairs):
         n = len(pairs)
         if n < 5:
-            print(f'{k+1:<6}{"":<16}{n:>6}{"—":>10}{"—":>12}')
-            continue
+            print(f'{label_num:<6}{label:<20}{n:>6}{"—":>10}{"—":>12}')
+            return
         q13 = np.array([p[0] for p in pairs])
         wk = np.array([p[1] for p in pairs])
         r_value, p_value = stats.pearsonr(q13, wk)
+        flag = ' ***' if p_value < 0.001 else (' **' if p_value < 0.01 else (' *' if p_value < 0.05 else ''))
+        print(f'{label_num:<6}{label:<20}{n:>6}{r_value:>10.3f}{p_value:>12.2e}{flag}')
+
+    print(f'{"Week":<6}{"Date range":<20}{"n":>6}{"r":>10}{"p-value":>12}')
+    print('-- Q4 (same FY as Q1-3) --')
+    for k in range(WEEKS_IN_Q4):
         start_day = 1 + 7 * k
         end_day = start_day + 6
-        label = f'day {start_day}-{end_day}'
-        flag = ' ***' if p_value < 0.001 else (' **' if p_value < 0.01 else (' *' if p_value < 0.05 else ''))
-        print(f'{k+1:<6}{label:<16}{n:>6}{r_value:>10.3f}{p_value:>12.2e}{flag}')
+        _print_row(k + 1, f'day {start_day}-{end_day}', pooled[k])
+
+    print('-- new FY (Jul 1 onward) --')
+    for k in range(N_POST_WEEKS):
+        start_day = 1 + 7 * k
+        end_day = start_day + 6
+        _print_row(WEEKS_IN_Q4 + k + 1, f'Jul+{start_day}-{end_day}', post_pooled[k])
 
 
 if __name__ == '__main__':
