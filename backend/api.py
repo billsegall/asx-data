@@ -1925,8 +1925,8 @@ def api_analysis_eofy_correlations_window(window):
     Same query params as /api/analysis/eofy-correlations.
     """
     window = window.strip().upper()
-    if window not in ('A', 'B'):
-        return jsonify({'error': "window must be 'A' or 'B'"}), 400
+    if window not in ('A', 'B', 'C'):
+        return jsonify({'error': "window must be 'A', 'B', or 'C'"}), 400
     if not os.path.exists(EOFY_DB_PATH):
         return jsonify({'error': 'No EOFY correlation database available'}), 404
 
@@ -1996,8 +1996,8 @@ def api_analysis_eofy_correlations_window(window):
 def api_analysis_eofy_correlations_window_symbol(window, symbol):
     """Per-symbol FY-by-FY detail (Q1-3 vs sub-window return) with OLS fit."""
     window = window.strip().upper()
-    if window not in ('A', 'B'):
-        return jsonify({'error': "window must be 'A' or 'B'"}), 400
+    if window not in ('A', 'B', 'C'):
+        return jsonify({'error': "window must be 'A', 'B', or 'C'"}), 400
     if not os.path.exists(EOFY_DB_PATH):
         return jsonify({'error': 'No EOFY correlation database available'}), 404
     symbol = symbol.strip().upper()

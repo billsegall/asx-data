@@ -37,9 +37,14 @@ from analysis.eofy_correlation.pipeline import (
 # day57-70 of Q4 (Apr1=day1): the strongest window found by the weekly breakdown.
 # day71-91: complement, ending at the true Jun-30 boundary (not q4_start+91d,
 # which overshoots to Jul 1 -- the weekly script's week-13 boundary did this).
+# 'C' is different in kind: not a Q4 sub-window but the 6 weeks *after* Jun 30,
+# i.e. Q1-3's own FY vs the first 6 weeks of the FY that follows it. Added after
+# the weekly breakdown's new-FY continuation check found the in-quarter effect
+# does not carry over (only weak, scattered, non-FDR-surviving weekly hits).
 WINDOWS = {
     'A': {'start_day': 57, 'end_day': 70, 'label': 'Late May (day 57-70)'},
     'B': {'start_day': 71, 'end_day': 91, 'label': 'Rest of Q4 (day 71-91, to Jun 30)'},
+    'C': {'start_day': 1, 'end_day': 42, 'label': 'New FY (Jul 1 - Aug 11)'},
 }
 
 _WINDOW_DB_SCHEMA = """
@@ -131,35 +136,45 @@ def run_window_pipeline(db_path: str, min_years: int = MIN_YEARS_FLOOR, fdr_alph
             a2 = q4_start + pd.Timedelta(days=WINDOWS['A']['end_day'])
             b1 = q4_start + pd.Timedelta(days=WINDOWS['B']['start_day'] - 1)
             b2 = q4_end
+            c1 = q4_end + pd.Timedelta(days=1)
+            c2 = c1 + pd.Timedelta(days=WINDOWS['C']['end_day'])
             a_ret = _window_return(dates_arr, closes_arr, a1, a2)
             b_ret = _window_return(dates_arr, closes_arr, b1, b2)
+            c_ret = _window_return(dates_arr, closes_arr, c1, c2)
             if a_ret is None or b_ret is None:
                 continue
-            rows.append({
+            row = {
                 'fy': rec['fy'], 'fy_year': rec['fy_year'],
                 'q13_return': rec['q13_return'], 'a_return': a_ret, 'b_return': b_ret,
-            })
+            }
+            if c_ret is not None:
+                row['c_return'] = c_ret
+            rows.append(row)
         if len(rows) >= min_years:
             per_symbol_records[symbol] = (rows, n_outliers, float(closes_arr[-1]))
 
-    results = {'A': [], 'B': []}
+    results = {'A': [], 'B': [], 'C': []}
     for symbol, (rows, n_outliers, latest_close) in per_symbol_records.items():
-        q13 = np.array([r['q13_return'] for r in rows])
-        n_years = len(rows)
-        fy_years = [r['fy_year'] for r in rows]
-        first_fy = min(rows, key=lambda r: r['fy_year'])['fy']
-        last_fy = max(rows, key=lambda r: r['fy_year'])['fy']
         sh = shares.get(symbol)
         market_cap = (sh * latest_close) if sh else None
 
-        for label, key in (('A', 'a_return'), ('B', 'b_return')):
-            wret = np.array([r[key] for r in rows])
+        for label, key in (('A', 'a_return'), ('B', 'b_return'), ('C', 'c_return')):
+            # C needs the *next* FY's data too, so its eligible-row set (and
+            # therefore n_years) is a subset of A/B's rows for the same symbol.
+            sub_rows = [r for r in rows if key in r]
+            n_years = len(sub_rows)
+            if n_years < min_years:
+                continue
+            q13 = np.array([r['q13_return'] for r in sub_rows])
+            wret = np.array([r[key] for r in sub_rows])
             r_value, p_value = stats.pearsonr(q13, wret)
             if np.isnan(r_value):
                 continue
+            first_fy = min(sub_rows, key=lambda r: r['fy_year'])['fy']
+            last_fy = max(sub_rows, key=lambda r: r['fy_year'])['fy']
             fy_detail = [
                 {'fy': r['fy'], 'q13_return': r['q13_return'], 'window_return': r[key]}
-                for r in rows
+                for r in sub_rows
             ]
             results[label].append({
                 'symbol': symbol,
@@ -180,7 +195,7 @@ def run_window_pipeline(db_path: str, min_years: int = MIN_YEARS_FLOOR, fdr_alph
             })
 
     out = {}
-    for label in ('A', 'B'):
+    for label in ('A', 'B', 'C'):
         df = pd.DataFrame(results[label])
         if len(df) > 0:
             reject, fdr_p = _fdr_correct(df['p_value'].values, alpha=fdr_alpha)

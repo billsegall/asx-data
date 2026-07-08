@@ -118,14 +118,22 @@ Guards: excludes any FY with a `corporate_events` split/consolidation inside
 its window, and any single-quarter return with `abs(return) > 300%` (likely
 an un-adjusted-split artifact). Results in `analysis/results/eofy_correlation.db`.
 
-`analysis/eofy_correlation/window_pipeline.py` tests two Q4 sub-windows —
-Late May (day57-70) and Rest of Q4 (day71-91, to Jun 30) — against the same
-Q1-3 return, for every eligible current symbol (not a pre-selected subset).
-Found by an earlier investigative weekly breakdown (13 weeks of Q4, pooled
+`analysis/eofy_correlation/window_pipeline.py` tests three windows against
+the same Q1-3 return, for every eligible current symbol (not a pre-selected
+subset): Late May (day57-70) and Rest of Q4 (day71-91, to Jun 30) — both
+found by an earlier investigative weekly breakdown (13 weeks of Q4, pooled
 over the top-50 |r| stocks) that showed the Full-Quarter effect concentrated
-in two adjacent weeks rather than spread evenly. Same guards as above;
-results in the same DB (`eofy_window_correlation` / `eofy_window_definitions`
-tables). Run via `run_eofy_window_compare`, below.
+in two adjacent weeks rather than spread evenly — plus New FY (window 'C',
+Jul 1 - Aug 11 of the FY that follows), added after a follow-up weekly
+breakdown extended past Jun 30 and found the in-quarter effect does not
+carry over (only weak, scattered, non-FDR-surviving weekly hits). Confirmed
+at full-universe scale: window C has 0 FDR-significant symbols vs 21 (A) /
+9 (B). Window C differs structurally from A/B — it needs the *next* FY's
+data too, so its per-symbol `n_years` is a subset of A/B's eligible years
+for the same symbol (recently-listed or current-in-progress FYs may lack
+it). Same exclusion guards as above otherwise; results in the same DB
+(`eofy_window_correlation` / `eofy_window_definitions` tables, `window`
+column value `'C'`). Run via `run_eofy_window_compare`, below.
 
 ### CLI scripts (run from repo root)
 ```bash
