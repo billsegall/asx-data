@@ -24,6 +24,9 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent / 'stockdb'))
+from exchanges import ib_contract_args
+
 DEFAULT_DB = Path(__file__).parent.parent / 'stockdb' / 'stockdb.db'
 IB_HOST    = '127.0.0.1'
 IB_PORT    = 4001
@@ -42,7 +45,8 @@ def option_to_underlying(sym: str) -> str | None:
 
 def fetch_warrants(ib, underlying: str) -> list:
     from ib_insync import Contract
-    c = Contract(symbol=underlying, secType='WAR', exchange='ASX', currency='AUD')
+    ib_exchange, ib_currency = ib_contract_args()
+    c = Contract(symbol=underlying, secType='WAR', exchange=ib_exchange, currency=ib_currency)
     try:
         return ib.reqContractDetails(c)
     except Exception as e:

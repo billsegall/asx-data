@@ -13,6 +13,7 @@ from flask import Flask, jsonify, request, abort, make_response, Response
 
 # stockdb is on PYTHONPATH (../stockdb when running locally, /stockdb in Docker)
 import stockdb
+import exchanges
 
 app = Flask(__name__)
 
@@ -302,6 +303,7 @@ def _enrich_batch(symbols):
 @app.route('/api/stock/<symbol>')
 def api_stock(symbol):
     symbol = symbol.strip().upper()
+    exchange = request.args.get('exchange', exchanges.DEFAULT_EXCHANGE)
     start_str = request.args.get('start')
     end_str   = request.args.get('end')
 
@@ -334,10 +336,11 @@ def api_stock(symbol):
     )
     ohlcv = [[int(r[0]) * 1000, r[1], r[2], r[3], r[4], r[5]] for r in c.fetchall()]
 
+    index_overlay_symbol = exchanges.get_exchange(exchange)['index_overlay_symbol']
     c.execute(
         'SELECT date, close FROM endofday '
-        'WHERE symbol = "XAO" AND date >= ? AND date <= ? ORDER BY date ASC',
-        (start_ts, end_ts)
+        'WHERE symbol = ? AND date >= ? AND date <= ? ORDER BY date ASC',
+        (index_overlay_symbol, start_ts, end_ts)
     )
     xao = [[int(r[0]) * 1000, r[1]] for r in c.fetchall()]
 
@@ -505,6 +508,7 @@ def api_symbol_info(symbol):
     with the option's metadata instead of the normal share fields.
     """
     symbol = symbol.strip().upper()
+    exchange = request.args.get('exchange', exchanges.DEFAULT_EXCHANGE)
     c = stocks.cursor()
 
     # Check if this symbol is itself an ASX-listed option
@@ -570,6 +574,7 @@ def api_symbol_info(symbol):
 def api_fundamentals(symbol):
     """Full fundamentals row for one symbol."""
     symbol = symbol.strip().upper()
+    exchange = request.args.get('exchange', exchanges.DEFAULT_EXCHANGE)
     c = stocks.cursor()
     try:
         row = c.execute(
@@ -651,6 +656,7 @@ def api_fundamentals(symbol):
 def api_financials(symbol):
     """Annual financial statements for one symbol, sorted oldest first."""
     symbol = symbol.strip().upper()
+    exchange = request.args.get('exchange', exchanges.DEFAULT_EXCHANGE)
     c = stocks.cursor()
     try:
         rows = c.execute(
@@ -690,6 +696,7 @@ def api_shares(symbol):
 def api_dividends(symbol):
     """Historical dividend payments for one symbol, newest first."""
     symbol = symbol.strip().upper()
+    exchange = request.args.get('exchange', exchanges.DEFAULT_EXCHANGE)
     c = stocks.cursor()
     try:
         rows = c.execute(
@@ -849,6 +856,7 @@ def api_event_ics(event_id):
 @app.route('/api/events/<symbol>')
 def api_events_symbol(symbol):
     symbol = symbol.strip().upper()
+    exchange = request.args.get('exchange', exchanges.DEFAULT_EXCHANGE)
     c = stocks.cursor()
     try:
         rows = c.execute('''
@@ -3271,9 +3279,9 @@ def api_quotes():
                 except Exception:
                     pass
             # Fallback to Yahoo Finance
-            yf_ticker = f'{sym}.AX'
+            yf_sym = exchanges.yf_ticker(sym)
             try:
-                fi = yf.Ticker(yf_ticker).fast_info
+                fi = yf.Ticker(yf_sym).fast_info
                 price = fi.last_price
                 prev  = fi.previous_close
                 if price:
@@ -3292,9 +3300,9 @@ def api_quotes():
             except Exception:
                 return sym, None
         # Non-options: use Yahoo Finance
-        yf_ticker = '^AORD' if sym == 'XAO' else f'{sym}.AX'
+        yf_sym = exchanges.yf_ticker(sym)
         try:
-            fi = yf.Ticker(yf_ticker).fast_info
+            fi = yf.Ticker(yf_sym).fast_info
             price = fi.last_price
             prev  = fi.previous_close
             if price:
@@ -3356,8 +3364,8 @@ def api_quote(symbol):
         # Fallback to Yahoo Finance if Markit doesn't have data
         if not data:
             try:
-                yf_ticker = f'{symbol}.AX'
-                fi = yf.Ticker(yf_ticker).fast_info
+                yf_sym = exchanges.yf_ticker(symbol)
+                fi = yf.Ticker(yf_sym).fast_info
                 price = fi.last_price
                 prev  = fi.previous_close
                 if price:
@@ -3397,9 +3405,9 @@ def api_quote(symbol):
             return jsonify(data)
         abort(503)
 
-    yf_ticker = '^AORD' if symbol == 'XAO' else f'{symbol}.AX'
+    yf_sym = exchanges.yf_ticker(symbol)
     try:
-        fi = yf.Ticker(yf_ticker).fast_info
+        fi = yf.Ticker(yf_sym).fast_info
         price = fi.last_price
         prev_close = fi.previous_close
         if not price:
@@ -3435,10 +3443,11 @@ def api_ib_price(symbol):
         ib.connect('127.0.0.1', 4001, clientId=random.randint(100, 199), readonly=True, timeout=5)
         ib.reqMarketDataType(4)  # delayed-frozen: returns last available price outside market hours
         is_warrant = len(symbol) >= 4 and symbol[3] == 'O'
+        ib_exchange, ib_currency = exchanges.ib_contract_args()
         if is_warrant:
-            contract = Contract(secType='WAR', localSymbol=symbol, exchange='ASX', currency='AUD')
+            contract = Contract(secType='WAR', localSymbol=symbol, exchange=ib_exchange, currency=ib_currency)
         else:
-            contract = Stock(symbol, 'ASX', 'AUD')
+            contract = Stock(symbol, ib_exchange, ib_currency)
         if not ib.qualifyContracts(contract):
             ib.disconnect()
             return jsonify({'error': f'not found: {symbol}'}), 404

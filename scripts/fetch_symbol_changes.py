@@ -94,6 +94,7 @@ def store_changes(records, db_path):
         old_symbol     TEXT NOT NULL,
         new_symbol     TEXT NOT NULL,
         effective_date TEXT NOT NULL,
+        exchange       TEXT NOT NULL DEFAULT 'ASX',
         PRIMARY KEY (old_symbol, new_symbol, effective_date)
     )''')
     inserted = 0

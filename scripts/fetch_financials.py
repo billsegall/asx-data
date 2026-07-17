@@ -19,10 +19,13 @@ import os
 import sys
 import time
 import sqlite3
+from pathlib import Path
 
 import yfinance as yf
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).parent.parent / 'stockdb'))
+from exchanges import yf_ticker
 
 DELAY = 0.5        # seconds between symbols; ~1500 symbols ≈ 12 min
 LOG_EVERY = 100
@@ -68,6 +71,8 @@ def create_table(conn):
             stockholders_equity REAL,
             cash                REAL,
             total_liabilities   REAL,
+
+            exchange            TEXT NOT NULL DEFAULT 'ASX',
 
             PRIMARY KEY (symbol, fiscal_year_end)
         )
@@ -220,7 +225,7 @@ def main():
     ok = skipped = errors = 0
 
     for i, symbol in enumerate(symbols, 1):
-        ticker_str = '^AORD' if symbol == 'XAO' else f'{symbol}.AX'
+        ticker_str = yf_ticker(symbol)
         data = fetch_symbol(ticker_str)
 
         if data is None:

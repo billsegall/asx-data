@@ -32,7 +32,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute('create table if not exists symbols (symbol text primary key, name text, industry text, shares real, current integer not null default 1)')
+        c.execute("create table if not exists symbols (symbol text primary key, name text, industry text, shares real, current integer not null default 1, exchange text not null default 'ASX')")
         c.close()
 
     def CreateTableShorts(self, drop):
@@ -40,7 +40,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists shorts')
-        c.execute('create table if not exists shorts (symbol text, date datetime, short real)')
+        c.execute("create table if not exists shorts (symbol text, date datetime, short real, exchange text not null default 'ASX')")
         c.close()
 
     def CreateTableEndOfDay(self, drop):
@@ -48,7 +48,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists endofday')
-        c.execute('create table if not exists endofday (symbol text, date datetime, open real, high real, low real, close real, volume int)')
+        c.execute("create table if not exists endofday (symbol text, date datetime, open real, high real, low real, close real, volume int, exchange text not null default 'ASX')")
         c.close()
 
     def CreateTableEndOfMonth(self, drop):
@@ -56,7 +56,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists endofmonth')
-        c.execute('create table if not exists endofmonth (symbol text, date datetime, close real)')
+        c.execute("create table if not exists endofmonth (symbol text, date datetime, close real, exchange text not null default 'ASX')")
         c.close()
 
     def CreateTableCorporateEvents(self, drop=False):
@@ -70,6 +70,7 @@ class StockDB:
             event_type  TEXT    NOT NULL,
             ratio       REAL    NOT NULL,
             description TEXT,
+            exchange    TEXT    NOT NULL DEFAULT 'ASX',
             PRIMARY KEY (symbol, date)
         )''')
         self.db.commit()
@@ -85,6 +86,7 @@ class StockDB:
             ex_date  INTEGER NOT NULL,
             amount   REAL    NOT NULL,
             currency TEXT    NOT NULL DEFAULT 'AUD',
+            exchange TEXT    NOT NULL DEFAULT 'ASX',
             PRIMARY KEY (symbol, ex_date)
         )''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_dividends_symbol ON dividends(symbol)')
@@ -387,7 +389,7 @@ if __name__ == "__main__":
                        if date > max_existing_shorts]
         print(f"Inserting {len(shorts_rows)} new shorts rows (max existing date: {max_existing_shorts})")
         try:
-            c.executemany('insert into shorts values (?, ?, ?)', shorts_rows)
+            c.executemany('insert into shorts (symbol, date, short) values (?, ?, ?)', shorts_rows)
         except Exception as e:
             print("Insert shorts failed:", e)
             sys.exit(1)
@@ -396,7 +398,7 @@ if __name__ == "__main__":
         # what we can ignoring errors
         for k, v in d_shorts.items():
             try:
-                c.execute('insert into symbols values (?, ?, "Delisted", 0, 0)', (k, v[0]))
+                c.execute('insert into symbols (symbol, name, industry, shares, current) values (?, ?, "Delisted", 0, 0)', (k, v[0]))
             except Exception as e:
                 pass
 
@@ -434,7 +436,7 @@ if __name__ == "__main__":
             print(f"  Deleting endofday rows up to {max_eod_date} (date-bounded merge)")
             c.execute('DELETE FROM endofday WHERE date <= ?', (max_eod_date,))
 
-        c.executemany('insert into endofday values (?, ?, ?, ?, ?, ?, ?)', _eod_rows())
+        c.executemany('insert into endofday (symbol, date, open, high, low, close, volume) values (?, ?, ?, ?, ?, ?, ?)', _eod_rows())
 
         # EndOfMonth
         stockdb.CreateTableEndOfMonth(drop_eod)
@@ -461,7 +463,7 @@ if __name__ == "__main__":
                     pass
             c.execute('DELETE FROM endofmonth WHERE date <= ?', (max_eom_date,))
 
-        c.executemany('insert into endofmonth values (?, ?, ?)', _eom_rows())
+        c.executemany('insert into endofmonth (symbol, date, close) values (?, ?, ?)', _eom_rows())
 
         # Fix known eoddata.com decimal-point artifacts in XAO index data.
         # Legitimate XAO range is ~2500-10000; values outside 1500-20000 are 10x errors.

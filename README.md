@@ -27,6 +27,22 @@ Split/consolidation events are fetched from Yahoo Finance via `stockdb/fetch_spl
 When a new event is detected, the full adjusted OHLCV history for that symbol is
 re-downloaded so pre-split prices are correctly adjusted in `endofday`.
 
+## Multi-exchange preparation
+
+`stockdb/exchanges.py` is a small registry module (`EXCHANGES` dict, `yf_ticker()`,
+`ib_contract_args()`, `is_market_closed()`) that all yfinance-ticker construction and
+IB `Contract`/`Stock` calls go through, instead of hardcoding `.AX`/`^AORD`/`'ASX','AUD'`
+literals inline. Currently only `'ASX'` is registered — this is preparatory groundwork
+for a possible future second exchange, not a feature in itself.
+
+Every per-symbol table also carries an additive `exchange TEXT NOT NULL DEFAULT 'ASX'`
+column (see `Database.md` → "Multi-exchange preparation" for the full list). Run
+`stockdb/migrate_add_exchange_column.py [--db path] [--dry-run]` to apply it to an
+older `stockdb.db` copy — idempotent, checks `PRAGMA table_info` before altering.
+
+Deliberately deferred: composite `(symbol, exchange)` primary keys, the `WHERE symbol=?`
+→ `WHERE symbol=? AND exchange=?` query sweep, and any exchange-selector UI.
+
 ## The database
 
 See `Database.md` for the full schema. Summary of tables:

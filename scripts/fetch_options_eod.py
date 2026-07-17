@@ -22,12 +22,16 @@ import re
 import sqlite3
 import requests
 import logging
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(SCRIPT_DIR / "stockdb"))
+from exchanges import ib_contract_args
+
 DB_PATH    = SCRIPT_DIR / "stockdb" / "stockdb.db"
 MARKIT_URL = "https://asx.api.markitdigital.com/asx-research/1.0/companies/{}/header"
 IB_HOST    = '127.0.0.1'
@@ -61,11 +65,12 @@ def fetch_ib_prices(symbols: list[str], host: str, port: int) -> dict[str, float
 
     result = {}
     chunk_size = 50
+    ib_exchange, ib_currency = ib_contract_args()
     try:
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
             orig_contracts = [
-                Contract(secType='WAR', localSymbol=sym, exchange='ASX', currency='AUD')
+                Contract(secType='WAR', localSymbol=sym, exchange=ib_exchange, currency=ib_currency)
                 for sym in chunk
             ]
             # Map original symbol → qualified contract (IB may normalise localSymbol, e.g. GNMO→GNMOC)

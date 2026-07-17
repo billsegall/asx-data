@@ -22,10 +22,13 @@ import os
 import sys
 import time
 import sqlite3
+from pathlib import Path
 
 import yfinance as yf
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).parent.parent / 'stockdb'))
+from exchanges import yf_ticker
 
 DELAY = 0.3
 LOG_EVERY = 100
@@ -40,6 +43,7 @@ def create_table(conn):
             date        TEXT NOT NULL,     -- YYYY-MM-DD of the actual last data point
             shares      INTEGER NOT NULL,
             fetched_at  TEXT NOT NULL,
+            exchange    TEXT NOT NULL DEFAULT 'ASX',
             PRIMARY KEY (symbol, year)
         )
     ''')
@@ -105,7 +109,7 @@ def main():
     ok = skipped = errors = 0
 
     for i, symbol in enumerate(symbols, 1):
-        ticker_str = f'{symbol}.AX'
+        ticker_str = yf_ticker(symbol)
         data = fetch_symbol(ticker_str)
 
         if data is None:

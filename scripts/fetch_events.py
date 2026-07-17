@@ -22,8 +22,12 @@ import sqlite3
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import yfinance as yf
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'stockdb'))
+from exchanges import yf_ticker
 
 DELAY = 0.4          # seconds between requests
 LOG_EVERY = 100      # print progress every N symbols
@@ -55,6 +59,7 @@ def create_table(conn):
             is_estimate  INTEGER NOT NULL DEFAULT 0,
             source       TEXT    NOT NULL DEFAULT 'yfinance',
             fetched_at   TEXT    NOT NULL,
+            exchange     TEXT    NOT NULL DEFAULT 'ASX',
             UNIQUE (symbol, event_date, event_type)
         )
     ''')
@@ -170,7 +175,7 @@ def main():
     ok = skipped = errors = 0
 
     for i, symbol in enumerate(symbols, 1):
-        ticker_str = f'{symbol}.AX'
+        ticker_str = yf_ticker(symbol)
         try:
             t = yf.Ticker(ticker_str)
             info = t.info

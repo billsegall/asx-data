@@ -15,6 +15,8 @@ import argparse, datetime, math, sqlite3, sys, time, warnings, logging
 import yfinance as yf
 import pandas as pd
 
+from exchanges import yf_ticker as exchange_yf_ticker
+
 # Suppress yfinance HTTP warnings and logs
 warnings.filterwarnings('ignore')
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -77,8 +79,7 @@ def main():
     n_deleted = c.rowcount
     if n_deleted:
         print(f"  Removed {n_deleted} existing rows from {start_dt} onwards (re-run cleanup)")
-    _INDEX_MAP = {'XAO': '^AORD', 'XJO': '^AXJO'}
-    ticker_map = {sym: (_INDEX_MAP.get(sym) or f'{sym}.AX') for sym in symbols}
+    ticker_map = {sym: exchange_yf_ticker(sym) for sym in symbols}
     reverse_map = {v: k for k, v in ticker_map.items()}
     tickers = list(ticker_map.values())
 
@@ -207,7 +208,8 @@ def main():
             symbol            TEXT PRIMARY KEY,
             consecutive_misses INTEGER NOT NULL DEFAULT 0,
             first_miss_date   TEXT NOT NULL,
-            last_miss_date    TEXT NOT NULL
+            last_miss_date    TEXT NOT NULL,
+            exchange          TEXT NOT NULL DEFAULT 'ASX'
         )''')
         today_str = today.isoformat()
 

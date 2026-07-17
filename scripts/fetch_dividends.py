@@ -13,13 +13,16 @@ Usage:
   python3 fetch_dividends.py [--db /path/to/stockdb.db] [--symbol BHP] [--all] [--delay SECONDS]
 """
 
-import argparse, sqlite3, time, logging
+import argparse, sqlite3, sys, time, logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yfinance
 
 SCRIPT_DIR = Path(__file__).parent
+sys.path.insert(0, str(SCRIPT_DIR.parent / 'stockdb'))
+from exchanges import yf_ticker
+
 DEFAULT_DB  = SCRIPT_DIR.parent / 'stockdb' / 'stockdb.db'
 DELAY       = 0.3
 LOG_EVERY   = 100
@@ -34,6 +37,7 @@ def init_table(conn: sqlite3.Connection) -> None:
         ex_date  INTEGER NOT NULL,
         amount   REAL    NOT NULL,
         currency TEXT    NOT NULL DEFAULT 'AUD',
+        exchange TEXT    NOT NULL DEFAULT 'ASX',
         PRIMARY KEY (symbol, ex_date)
     )''')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_dividends_symbol ON dividends(symbol)')
@@ -42,7 +46,7 @@ def init_table(conn: sqlite3.Connection) -> None:
 
 def fetch_for_symbol(symbol: str) -> list[tuple]:
     """Fetch dividend history for one symbol. Returns list of (symbol, ex_date_unix, amount, currency)."""
-    ticker = yfinance.Ticker(symbol + '.AX')
+    ticker = yfinance.Ticker(yf_ticker(symbol))
     divs = ticker.dividends
     if divs is None or len(divs) == 0:
         return []

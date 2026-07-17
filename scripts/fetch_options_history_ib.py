@@ -25,11 +25,15 @@ import math
 import os
 import random
 import sqlite3
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 SCRIPT_DIR  = Path(__file__).parent.parent
+sys.path.insert(0, str(SCRIPT_DIR / "stockdb"))
+from exchanges import ib_contract_args
+
 DB_PATH     = SCRIPT_DIR / "stockdb" / "stockdb.db"
 IB_HOST     = '127.0.0.1'
 IB_PORT     = 4001
@@ -81,10 +85,11 @@ def main():
 
     # Phase 1: qualify all contracts in chunks (no rate limit on qualifyContracts)
     qualified_map = {}  # localSymbol -> contract
+    ib_exchange, ib_currency = ib_contract_args()
     for i in range(0, len(symbols), CHUNK_SIZE):
         chunk = symbols[i:i + CHUNK_SIZE]
         contracts = [
-            Contract(secType='WAR', localSymbol=sym, exchange='ASX', currency='AUD')
+            Contract(secType='WAR', localSymbol=sym, exchange=ib_exchange, currency=ib_currency)
             for sym in chunk
         ]
         for c in ib.qualifyContracts(*contracts):

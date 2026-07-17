@@ -120,7 +120,8 @@ def fetch(db_path):
         share_symbol   TEXT NOT NULL,
         share_name     TEXT NOT NULL,
         note           TEXT,
-        fetched_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        fetched_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        exchange       TEXT NOT NULL DEFAULT 'ASX'
     )''')
 
     conn.executemany(

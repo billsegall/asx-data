@@ -2,6 +2,17 @@
 
 The project uses three SQLite databases, each with a distinct concern.
 
+### Multi-exchange preparation
+
+Every per-symbol table below carries an additive `exchange TEXT NOT NULL DEFAULT 'ASX'`
+column (only `'ASX'` is populated today — no second exchange exists yet). This is
+groundwork only: primary keys, `WHERE symbol = ?` queries, and API routes are **not**
+yet exchange-aware. Exchange-specific literals (`.AX` suffix, `^AORD`/`^AXJO` overrides,
+IB `exchange`/`currency` args, holiday calendars) are resolved through a small registry
+module — `asx-data/stockdb/exchanges.py` and `asx-web/exchanges.py` (separate, per-repo
+copies; not shared-packaged) — rather than hardcoded inline. See each repo's `exchanges.py`
+for the registry shape (`EXCHANGES` dict, `yf_ticker()`, `ib_contract_args()`, etc.).
+
 ---
 
 ## 1. `stockdb/stockdb.db` — Market data (~934 MB)
@@ -15,14 +26,14 @@ Read-only from the web frontend. Built and maintained by the data pipeline on th
 | `name` | `TEXT` | Company name |
 | `industry` | `TEXT` | Industry group |
 | `shares` | `REAL` | Shares outstanding, derived from ListCorp snapshot: `mcap / last_trade_price` |
-| `current` | `INTEGER NOT NULL DEFAULT 1` | 1 = active listing, 0 = delisted/renamed |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code (see `exchanges.py`); only `'ASX'` populated |
 
 ### `shorts`
 | Column | Type | Notes |
 |--------|------|-------|
 | `symbol` | `TEXT` | ASX ticker |
 | `date` | `DATETIME` | Unix timestamp |
-| `short` | `REAL` | Short position as a percentage of issued capital |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Indexes:
 - `idx_shorts_symbol_date` on `(symbol, date)`
@@ -38,6 +49,7 @@ Indexes:
 | `low` | `REAL` | |
 | `close` | `REAL` | |
 | `volume` | `INT` | |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Index: `idx_endofday_symbol_date` on `(symbol, date)`
 
@@ -47,6 +59,7 @@ Index: `idx_endofday_symbol_date` on `(symbol, date)`
 | `symbol` | `TEXT` | ASX ticker |
 | `date` | `DATETIME` | Unix timestamp (last trading day of each month) |
 | `close` | `REAL` | |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Subset of `endofday` — only the last trading day of each calendar month.
 Used for efficient computation of 1m, 3m, 6m, 1y, 3y, 5y returns without scanning all daily rows.
@@ -59,6 +72,7 @@ Used for efficient computation of 1m, 3m, 6m, 1y, 3y, 5y returns without scannin
 | `event_type` | `TEXT NOT NULL` | `'split'` or `'consolidation'` |
 | `ratio` | `REAL NOT NULL` | Split ratio (e.g. 2.0 for 2:1 split, 0.5 for 1:2 consolidation) |
 | `description` | `TEXT` | Human-readable (e.g. `"2:1 Split"`, `"1:4 Consolidation"`) |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | PRIMARY KEY | `(symbol, date)` | |
 
 Populated by `stockdb/fetch_splits.py` using Yahoo Finance.
@@ -118,6 +132,7 @@ Fundamental and analyst data from Yahoo Finance. One row per symbol (upserted we
 | `float_shares` | `REAL` | |
 | `held_pct_insiders` | `REAL` | Fraction held by insiders |
 | `held_pct_institutions` | `REAL` | Fraction held by institutions |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Many fields will be NULL for micro-caps and ETFs where Yahoo Finance has limited coverage.
 
@@ -130,6 +145,7 @@ Historical per-share dividend payments from Yahoo Finance. Fetched by `asx-data/
 | `ex_date` | `INTEGER NOT NULL` | Unix timestamp of ex-dividend date |
 | `amount` | `REAL NOT NULL` | Per-share dividend amount in AUD |
 | `currency` | `TEXT NOT NULL DEFAULT 'AUD'` | Currency (always AUD for ASX stocks) |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | PRIMARY KEY | `(symbol, ex_date)` | |
 
 Index: `idx_dividends_symbol` on `(symbol)`
@@ -148,6 +164,7 @@ Year-end shares-outstanding snapshots derived from annual reports. One row per (
 | `date` | `TEXT NOT NULL` | YYYY-MM-DD of the actual last data point |
 | `shares` | `INTEGER NOT NULL` | Shares outstanding |
 | `fetched_at` | `TEXT NOT NULL` | ISO datetime of fetch |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | PRIMARY KEY | `(symbol, year)` | |
 
 ### `events`
@@ -165,6 +182,7 @@ Corporate calendar events from Yahoo Finance (ex-dividend dates, earnings dates,
 | `is_estimate` | `INTEGER NOT NULL DEFAULT 0` | 1 if date is estimated |
 | `source` | `TEXT NOT NULL DEFAULT 'yfinance'` | Data source |
 | `fetched_at` | `TEXT NOT NULL` | ISO datetime of fetch |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | UNIQUE | `(symbol, event_date, event_type)` | |
 
 ### `financials_annual`
@@ -192,6 +210,7 @@ Annual income statement, cash flow, and balance sheet from Yahoo Finance. One ro
 | `stockholders_equity` | `REAL` | |
 | `cash` | `REAL` | |
 | `total_liabilities` | `REAL` | |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | PRIMARY KEY | `(symbol, fiscal_year_end)` | |
 
 ### `commodity_meta`
@@ -303,6 +322,7 @@ Tracks consecutive end-of-day fetch failures per symbol (used to skip stale/deli
 | `consecutive_misses` | `INTEGER NOT NULL DEFAULT 0` | |
 | `first_miss_date` | `TEXT NOT NULL` | YYYY-MM-DD |
 | `last_miss_date` | `TEXT NOT NULL` | YYYY-MM-DD |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 ### Market cap
 Computed live at query time: `symbols.shares × latest close from endofday`. No stale snapshot date.
@@ -373,6 +393,7 @@ The admin user (configured via `ADMIN_EMAIL` env var) is seeded on startup, alwa
 | `symbol` | `TEXT NOT NULL` | ASX ticker |
 | `position` | `INTEGER NOT NULL DEFAULT 0` | Display order |
 | `notes` | `TEXT` | |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | UNIQUE | `(list_id, symbol)` | No duplicate symbols per list |
 
 ### `portfolio_items`
@@ -388,6 +409,7 @@ The admin user (configured via `ADMIN_EMAIL` env var) is seeded on startup, alwa
 | `position` | `INTEGER NOT NULL DEFAULT 0` | Display order |
 | `attachment_data` | `BLOB` | Contract note PDF bytes |
 | `attachment_name` | `TEXT` | Original filename of the attached contract note |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Multiple rows per symbol allowed (different tranches at different prices).
 
@@ -416,6 +438,7 @@ Multiple rows per symbol allowed (different tranches at different prices).
 | `pdf_data` | `BLOB` | Original contract note PDF bytes |
 | `applied` | `INTEGER NOT NULL DEFAULT 0` | 1 = trade applied to portfolio |
 | `created_at` | `INTEGER NOT NULL DEFAULT (strftime('%s','now'))` | Unix timestamp |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Contract notes are parsed by the CMC/generic parser in `asx.py` and stored here before being applied to a portfolio.
 
@@ -445,6 +468,7 @@ Contract notes are parsed by the CMC/generic parser in `asx.py` and stored here 
 | `expires_date` | `TEXT NOT NULL` | YYYY-MM-DD — when the recommendation expires |
 | `score` | `REAL` | Confidence/strength score |
 | `computed_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | UNIQUE | `(algorithm_id, symbol, signal_date)` | |
 
 ### `alerts`
@@ -538,6 +562,7 @@ Audit log for admin-toggled per-user feature flags.
 | `share_name` | `TEXT NOT NULL` | Underlying company name |
 | `note` | `TEXT` | Additional info (e.g. `'C'` for call) |
 | `fetched_at` | `TEXT NOT NULL DEFAULT (datetime('now'))` | When last refreshed |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 Populated by `asx-data/scripts/fetch_options_ib.py` (weekly from IB Gateway) and `fetch_options_eod.py` (daily EOD prices into `endofday`). EOD prices joined at query time from `endofday` on `option_symbol`.
 
@@ -547,6 +572,7 @@ Populated by `asx-data/scripts/fetch_options_ib.py` (weekly from IB Gateway) and
 | `old_symbol` | `TEXT NOT NULL` | Previous ASX ticker |
 | `new_symbol` | `TEXT NOT NULL` | New ASX ticker |
 | `effective_date` | `TEXT NOT NULL` | YYYY-MM-DD |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 | PRIMARY KEY | `(old_symbol, new_symbol, effective_date)` | |
 
 Populated by `asx-data/scripts/fetch_symbol_changes.py`. Displayed on the stock chart page.
@@ -576,6 +602,7 @@ Populated by `asx-data/scripts/fetch_symbol_changes.py`. Displayed on the stock 
 | `notes` | `TEXT` | User notes |
 | `is_public` | `INTEGER NOT NULL DEFAULT 0` | 0 = private, 1 = public (visible to all users) |
 | `uploaded_at` | `INTEGER NOT NULL` | Unix timestamp of upload |
+| `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code; only `'ASX'` populated |
 
 AI extraction uses Claude Haiku via `ANTHROPIC_API_KEY`. Expected Value = Σ(prob_i × midpoint_i).
 

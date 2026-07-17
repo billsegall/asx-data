@@ -16,7 +16,7 @@ from datetime import date, timedelta
 import yfinance as yf
 import pandas as pd
 
-from holidays import is_asx_closed
+from exchanges import is_market_closed, yf_ticker as exchange_yf_ticker
 
 # Suppress yfinance HTTP warnings and logs
 warnings.filterwarnings('ignore')
@@ -72,11 +72,11 @@ def _is_warrant_or_option(sym):
 
 def redownload_history(sym, db_cursor, db):
     """Re-download full adjusted history for a symbol and INSERT OR REPLACE into endofday."""
-    yf_ticker = '^AORD' if sym == 'XAO' else f'{sym}.AX'
+    yf_sym = exchange_yf_ticker(sym)
     print(f"    Re-downloading full history for {sym}...", end='', flush=True)
     try:
         df = yf.download(
-            yf_ticker,
+            yf_sym,
             period='max',
             auto_adjust=True,
             progress=False,
@@ -130,7 +130,7 @@ def main():
 
     # Exit early if yesterday was a market holiday (nothing to check)
     yesterday = date.today() - timedelta(days=1)
-    if is_asx_closed(yesterday):
+    if is_market_closed(yesterday, 'ASX'):
         print(f'Yesterday ({yesterday}) was a market holiday. Exiting.')
         return
 
@@ -144,6 +144,7 @@ def main():
         event_type  TEXT    NOT NULL,
         ratio       REAL    NOT NULL,
         description TEXT,
+        exchange    TEXT    NOT NULL DEFAULT 'ASX',
         PRIMARY KEY (symbol, date)
     )''')
     db.commit()
@@ -165,7 +166,7 @@ def main():
     redownloads = 0
 
     for i, sym in enumerate(symbols):
-        yf_sym = '^AORD' if sym == 'XAO' else f'{sym}.AX'
+        yf_sym = exchange_yf_ticker(sym)
         try:
             ticker = yf.Ticker(yf_sym)
             splits = ticker.splits  # pandas Series: {date: ratio}

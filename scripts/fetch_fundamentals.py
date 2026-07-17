@@ -22,8 +22,12 @@ import subprocess
 import time
 import datetime
 import sys
+from pathlib import Path
 
 import yfinance as yf
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'stockdb'))
+from exchanges import yf_ticker
 
 DELAY = 0.4          # seconds between requests; ~1500 symbols ≈ 10 minutes
 LOG_EVERY = 100      # print progress every N symbols
@@ -162,6 +166,8 @@ def _create_new_table(conn):
 
             -- Dividend date
             last_dividend_date          INTEGER,
+
+            exchange                    TEXT NOT NULL DEFAULT 'ASX',
 
             PRIMARY KEY (symbol, date)
         )
@@ -438,7 +444,7 @@ def main():
     ok = skipped = errors = 0
 
     for i, symbol in enumerate(symbols, 1):
-        ticker_str = '^AORD' if symbol == 'XAO' else f'{symbol}.AX'
+        ticker_str = yf_ticker(symbol)
         info = fetch_symbol(ticker_str)
 
         if info is None:
