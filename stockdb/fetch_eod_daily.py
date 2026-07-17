@@ -151,7 +151,9 @@ def main():
 
         # Commit batch immediately to reduce memory footprint
         if batch_inserts:
-            c.executemany('INSERT OR IGNORE INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', batch_inserts)
+            c.executemany(
+                'INSERT OR IGNORE INTO endofday (symbol, date, open, high, low, close, volume) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?)', batch_inserts)
             db.commit()
             total_rows += batch_rows
 

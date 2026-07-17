@@ -384,7 +384,33 @@ def info_to_row(symbol, today, info):
 
 
 INSERT_SQL = '''
-    INSERT OR REPLACE INTO fundamentals VALUES (
+    INSERT OR REPLACE INTO fundamentals (
+        symbol, date, fetched_at,
+        market_cap, enterprise_value, trailing_pe, forward_pe, price_to_book,
+        price_to_sales, enterprise_to_revenue, enterprise_to_ebitda,
+        profit_margins, operating_margins, gross_margins, ebitda_margins,
+        return_on_assets, return_on_equity,
+        revenue_growth, earnings_growth,
+        total_revenue, ebitda, net_income, free_cashflow, operating_cashflow,
+        total_cash, total_debt, debt_to_equity, current_ratio, quick_ratio,
+        eps_trailing, eps_forward,
+        dividend_yield, dividend_rate, payout_ratio, five_year_avg_div_yield,
+        ex_dividend_date, last_dividend_value,
+        recommendation_mean, recommendation_key, analyst_count, target_mean_price,
+        target_high_price, target_low_price, target_median_price,
+        beta, week52_change,
+        shares_outstanding, float_shares, held_pct_insiders, held_pct_institutions,
+        business_summary,
+        full_time_employees, website, sector, country, city, long_name,
+        fifty_day_average, two_hundred_day_average, average_volume, all_time_high,
+        all_time_low,
+        audit_risk, board_risk, compensation_risk, shareholder_rights_risk, overall_risk,
+        book_value, revenue_per_share, total_cash_per_share, eps_current_year,
+        price_eps_current_year, trailing_peg_ratio,
+        earnings_timestamp, last_fiscal_year_end, next_fiscal_year_end, most_recent_quarter,
+        earnings_quarterly_growth,
+        last_dividend_date
+    ) VALUES (
         ?,?,?,  -- symbol, date, fetched_at
         ?,?,?,?,?,?,?,?,  -- valuation (8)
         ?,?,?,?,?,?,      -- profitability (6)

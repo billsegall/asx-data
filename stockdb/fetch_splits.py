@@ -113,7 +113,9 @@ def redownload_history(sym, db_cursor, db):
 
     if rows:
         db_cursor.execute('DELETE FROM endofday WHERE symbol = ?', (sym,))
-        db_cursor.executemany('INSERT INTO endofday VALUES (?, ?, ?, ?, ?, ?, ?)', rows)
+        db_cursor.executemany(
+            'INSERT INTO endofday (symbol, date, open, high, low, close, volume) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)', rows)
         db.commit()
 
     print(f" {len(rows)} rows")
