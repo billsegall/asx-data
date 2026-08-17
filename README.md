@@ -237,6 +237,11 @@ Populated by `asx-data/scripts/fetch_symbol_changes.py` (daily cron).
 
 `GET /symbol-changes?symbol=XXX` — returns changes for one symbol (old or new).
 
+`GET /api/corporate-events/<symbol>` — consolidation/split events for a symbol from
+`corporate_events`, e.g. `[{"date": 1745330400, "ratio": 0.04, "event_type": "consolidation", "description": "1:25 Consolidation"}]`.
+`ratio` is new_shares/old_shares. Used by `asx-web/scripts/apply_corporate_actions.py`
+to auto-adjust portfolio holdings for held symbols.
+
 ---
 
 ## Crypto Prices

@@ -3180,6 +3180,24 @@ def api_symbol_changes():
     return jsonify({'found': False})
 
 
+@app.route('/api/corporate-events/<symbol>')
+def api_corporate_events(symbol):
+    """Consolidation/split events for a symbol → [{date, ratio, event_type, description}, ...].
+    ratio is new_shares/old_shares (e.g. 0.0667 for a 1-for-15 consolidation)."""
+    symbol = symbol.strip().upper()
+    c = stocks.cursor()
+    try:
+        rows = c.execute(
+            "SELECT date, ratio, event_type, description FROM corporate_events "
+            "WHERE symbol = ? AND event_type IN ('consolidation','split') ORDER BY date ASC",
+            (symbol,)
+        ).fetchall()
+    except Exception:
+        rows = []
+    return jsonify([{'date': r[0], 'ratio': r[1], 'event_type': r[2], 'description': r[3]}
+                    for r in rows])
+
+
 @app.route('/options')
 def api_options():
     """Options for a symbol. ?symbol=BHP → [{option_symbol, expiry, exercise, eod_price, eod_date, ...}, ...]
