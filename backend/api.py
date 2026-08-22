@@ -50,7 +50,18 @@ signal.signal(signal.SIGHUP, _reload_volume_config)
 
 
 def _migrate_and_refresh_currency():
-    """Add current column if missing, then mark symbols with no EOD in the past year as old."""
+    """Add current column if missing, then mark symbols with no EOD in the past year as old.
+
+    Runs on every process start, so it's a blunt liveness heuristic (traded
+    recently = current) — it knows nothing about ASX code renames. A symbol
+    freshly renamed to a new code has no EOD history yet under that new code
+    (real trading data takes time to arrive) and would get wrongly demoted
+    here; the old, superseded code usually *does* still have recent EOD
+    history and would get wrongly left as current. fetch_symbol_changes.py
+    is the authoritative source for identity in that case — its
+    old_symbol/new_symbol/effective_date rows always override the EOD-based
+    guess made above, applied last so they win.
+    """
     c = stocks.cursor()
     try:
         c.execute('ALTER TABLE symbols ADD COLUMN current INTEGER NOT NULL DEFAULT 1')
@@ -63,6 +74,15 @@ def _migrate_and_refresh_currency():
                  WHERE symbol NOT IN (
                      SELECT DISTINCT symbol FROM endofday WHERE date > ?
                  )''', (one_year_ago,))
+    try:
+        c.execute('''UPDATE symbols SET current = 0 WHERE symbol IN (
+                         SELECT old_symbol FROM symbol_changes WHERE effective_date <= date('now')
+                     )''')
+        c.execute('''UPDATE symbols SET current = 1 WHERE symbol IN (
+                         SELECT new_symbol FROM symbol_changes WHERE effective_date <= date('now')
+                     )''')
+    except Exception:
+        pass  # symbol_changes table not created yet (fresh DB)
     stocks.commit()
 
 
