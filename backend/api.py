@@ -317,7 +317,12 @@ def api_stock(symbol):
         end_ts = time.time()
 
     c = stocks.cursor()
-    if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
+    # See api_symbol_info: a freshly-renamed code can be a known current listing
+    # with no price history yet under the new code — don't 404 the chart page,
+    # just return empty series (same as a stock the day it lists).
+    has_eod = c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone()
+    in_symbols = c.execute('SELECT 1 FROM symbols WHERE symbol = ?', (symbol,)).fetchone()
+    if not has_eod and not in_symbols:
         abort(404)
 
     name, industry, shares = stocks.LookupSymbol(symbol)
@@ -528,7 +533,12 @@ def api_symbol_info(symbol):
             'industry': None, 'mcap': None, 'shares': None, 'options': [],
         })
 
-    if not c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone():
+    # A symbol is valid if it has price history OR is a known current listing —
+    # the latter covers a freshly-renamed code (e.g. after a consolidation/rebrand)
+    # that hasn't traded yet under the new code, so no endofday rows exist for it.
+    has_eod = c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone()
+    in_symbols = c.execute('SELECT 1 FROM symbols WHERE symbol = ?', (symbol,)).fetchone()
+    if not has_eod and not in_symbols:
         abort(404)
     name, industry, shares = stocks.LookupSymbol(symbol)
     if not shares:
