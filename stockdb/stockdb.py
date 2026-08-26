@@ -57,6 +57,12 @@ class StockDB:
         if drop:
             c.execute('drop table if exists endofmonth')
         c.execute("create table if not exists endofmonth (symbol text, date datetime, close real, exchange text not null default 'ASX')")
+        # Unlike endofday/shorts (which had their own unique index added
+        # later), endofmonth never had one — added defensively so
+        # fetch_symbol_changes.py's rename migration (UPDATE OR IGNORE) can't
+        # silently duplicate a date the new symbol already has its own native
+        # row for, the way it did to shorts before that table got the same fix.
+        c.execute('create unique index if not exists idx_endofmonth_symbol_date on endofmonth(symbol, date)')
         c.close()
 
     def CreateTableCorporateEvents(self, drop=False):
@@ -99,9 +105,14 @@ class StockDB:
         c.execute('drop index if exists idx_shorts_symbol_date')
         c.execute('drop index if exists idx_shorts_3char_peak')
         c.execute('drop index if exists idx_shorts_date')
+        c.execute('drop index if exists idx_shorts_symbol_date_unique')
         c.execute('create index idx_shorts_symbol_date on shorts(symbol, date)')
         c.execute('create index idx_shorts_3char_peak on shorts(symbol, short desc) where length(symbol) = 3')
         c.execute('create index idx_shorts_date on shorts(date)')
+        # Enforced so fetch_symbol_changes.py's rename migration can't silently
+        # re-duplicate a date a renamed symbol already has its own native row
+        # for — see fetch_symbol_changes.py's migrate_history() docstring.
+        c.execute('create unique index idx_shorts_symbol_date_unique on shorts(symbol, date)')
         c.close()
 
     def CreateIndexesEOD(self):
