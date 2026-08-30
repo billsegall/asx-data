@@ -441,6 +441,18 @@ def api_batch_closes():
     return jsonify(result)
 
 
+@app.route('/api/last-trading-day')
+def api_last_trading_day():
+    """Most recent date with EOD price data — the last session actually
+    reflected in prices, as opposed to the calendar date (which may be a
+    weekend/holiday, or a trading day whose EOD fetch hasn't landed yet)."""
+    c = stocks.cursor()
+    c.execute('SELECT MAX(date) FROM endofday')
+    max_date = c.fetchone()[0]
+    date_str = datetime.datetime.fromtimestamp(max_date).strftime('%Y-%m-%d') if max_date else None
+    return jsonify({'date': date_str})
+
+
 @app.route('/api/symbols/all')
 def api_symbols_all():
     """Return ASX symbols. Defaults to current only; pass ?all=1 to include delisted."""
