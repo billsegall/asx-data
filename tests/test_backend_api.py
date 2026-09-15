@@ -9,6 +9,7 @@ for correlations; here we use a session-scoped skip directly).
 import pytest
 import urllib.request
 import urllib.parse
+import urllib.error
 import json
 
 BASE = 'http://localhost:8082'
@@ -156,6 +157,36 @@ class TestEnrichEndpoint:
     def test_multiple_symbols(self):
         result = _post('/api/enrich', {'symbols': ['BHP', 'CBA']})
         assert isinstance(result, dict)
+
+    def test_concurrent_requests_do_not_500(self):
+        """Regression test: StockDB used to share one sqlite3 connection
+        across every request thread (Flask's `flask run` serves on a thread
+        pool). Concurrent cursor use on that single shared connection
+        intermittently made fetchone() return no row at all for a bare
+        SELECT MAX(date) aggregate, raising a 500 -- reproduced live at
+        roughly 1-in-100 concurrent requests before StockDB switched to a
+        connection per thread."""
+        import concurrent.futures
+        symbols = ['BHP', 'RIO', 'CBA', 'WBC', 'ANZ', 'NAB', 'CSL', 'WES',
+                   'TLS', 'WOW', 'MQG', 'GMG', 'TCL', 'APA', 'ORG']
+
+        def hit(_):
+            req = urllib.request.Request(
+                BASE + '/api/enrich',
+                data=json.dumps({'symbols': symbols}).encode(),
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    return r.status
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
+            statuses = list(ex.map(hit, range(150)))
+        assert all(s == 200 for s in statuses), \
+            f'{sum(1 for s in statuses if s != 200)}/150 requests failed'
 
 
 # ---------------------------------------------------------------------------

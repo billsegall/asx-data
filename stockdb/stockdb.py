@@ -2,7 +2,7 @@
 # Copyright (c) 2019-2026, Bill Segall
 # All rights reserved. See LICENSE for details.
 
-import argparse, csv, glob, locale, sqlite3, time, sys, cProfile, pstats, re
+import argparse, csv, glob, locale, sqlite3, threading, time, sys, cProfile, pstats, re
 PROFILE=False
 
 class StockDB:
@@ -10,22 +10,44 @@ class StockDB:
 
     def __init__(self, dbfile, check_same_thread):
         self.dbfile = dbfile
-        self.db = sqlite3.connect(self.dbfile, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=check_same_thread, timeout=30)
+        self._check_same_thread = check_same_thread
+        self._local = threading.local()
+
+    @property
+    def db(self):
+        # One sqlite3 connection per thread, not one shared across all of
+        # them. The API server (flask run) handles requests on a pool of
+        # threads, and a single shared connection's cursors are not safe
+        # for concurrent use from multiple threads even with
+        # check_same_thread=False -- that flag only disables Python's own
+        # same-thread check, it doesn't make concurrent access safe. Under
+        # load this showed up as `_enrich_batch`'s MAX(date) query
+        # intermittently returning no row at all from fetchone() (~40
+        # times/week in production), paired with unrelated requests timing
+        # out while queued behind whatever held the connection.
+        conn = getattr(self._local, 'conn', None)
+        if conn is None:
+            conn = sqlite3.connect(self.dbfile, detect_types=sqlite3.PARSE_DECLTYPES,
+                                    check_same_thread=self._check_same_thread, timeout=30)
+            self._local.conn = conn
+        return conn
 
     def __del__(self):
-        self.db.close()
+        conn = getattr(self._local, 'conn', None)
+        if conn is not None:
+            conn.close()
 
     def close(self):
-        self.db.close()
+        conn = getattr(self._local, 'conn', None)
+        if conn is not None:
+            conn.close()
+            self._local.conn = None
 
     def cursor(self):
         return self.db.cursor()
 
     def commit(self):
         self.db.commit()
-
-    def db(self):
-        return self.db
 
     def CreateTableSymbols(self, drop):
         '''Create the symbols table, dropping any existing if asked'''
