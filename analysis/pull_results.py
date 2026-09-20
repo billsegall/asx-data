@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """
 Pull analysis/results/ from a remote GPU machine to local via SSH ControlMaster.
-Used when the remote→local direction has a small per-channel data limit (~800 bytes)
-that prevents rsync from working for large files.
+Written for a remote→local per-channel data limit (~800 bytes) that once
+prevented rsync from working for large files in this direction.
+
+NOT currently called by sync.sh (2026-09) -- that constraint no longer
+reproduces (a plain `rsync` pull moved a 16MB file in <1s against production
+hosts), and this script's 600-byte-per-SSH-round-trip chunking turned out to
+be the more fragile path: one large file failing to transfer here (timeout,
+dropped connection) killed sync.sh's entire push/import step under `set -e`,
+including the unrelated Kronos prediction import, for three consecutive
+nights. sync.sh now uses plain rsync instead. Kept here in case that old
+per-channel constraint ever recurs on a different network path.
 
 Usage:
     python3 analysis/pull_results.py --remote user@host --local analysis/results/

@@ -80,20 +80,36 @@ python3 -m analysis.cli.run_kronos_backtest \
 
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
+    # Failures here must NOT be fatal to the script (no bare `set -e`-tripping
+    # commands) -- three consecutive nights, a single large unrelated file
+    # (eofy_correlation.db, ~16MB) failed to transfer via pull_results.py's
+    # 600-byte dd+base64-per-SSH-round-trip chunking (a workaround from
+    # 2026-06 for an rsync-over-this-link issue that no longer reproduces --
+    # a plain `rsync` pull in this exact direction now moves the same file
+    # in well under a second) and its non-zero exit killed the whole script
+    # under `set -e`, silently skipping the Kronos import below even though
+    # predictions_kronos.json (tiny, and everything Kronos actually needs)
+    # had already landed successfully. Switched to plain rsync -- proven
+    # working and fast against production hosts -- and made both this step
+    # and the import below independently non-fatal so a failure transferring
+    # one file never blocks another.
     if [[ -n "${ANALYSIS_MACHINE:-}" ]]; then
         echo "==> Telling $HARRI to pull results from $ANALYSIS_MACHINE..."
-        ssh "$HARRI" "cd $REMOTE_BASE && python3 analysis/pull_results.py \
-            --remote '$ANALYSIS_MACHINE' \
-            --remote-dir '$REMOTE_BASE/analysis/results' \
-            --local-dir 'analysis/results'"
+        if ! ssh "$HARRI" "cd $REMOTE_BASE && rsync -avz '$ANALYSIS_MACHINE:$REMOTE_BASE/analysis/results/' 'analysis/results/'"; then
+            echo "WARNING: pull-back from $ANALYSIS_MACHINE failed -- some result files may be stale. Kronos import (below) still attempted independently." >&2
+        fi
     else
         echo "==> Pushing results to $HARRI (ANALYSIS_MACHINE not set, using rsync)..."
-        rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"
+        if ! rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"; then
+            echo "WARNING: push to $HARRI failed -- some result files may be stale. Kronos import (below) still attempted independently." >&2
+        fi
     fi
     echo "==> Importing Kronos predictions to history DB on $HARRI..."
-    ssh "$HARRI" "cd $REMOTE_BASE && python3 -m analysis.cli.import_kronos_predictions \
+    if ! ssh "$HARRI" "cd $REMOTE_BASE && test -f analysis/results/predictions_kronos.json && python3 -m analysis.cli.import_kronos_predictions \
         --db stockdb/stockdb.db \
-        --json analysis/results/predictions_kronos.json"
+        --json analysis/results/predictions_kronos.json"; then
+        echo "WARNING: Kronos import failed, or predictions_kronos.json is missing/stale on $HARRI." >&2
+    fi
     echo "==> Done. Results live at /api/analysis/signals etc."
 else
     echo "==> Skipping push (--skip-push)"
