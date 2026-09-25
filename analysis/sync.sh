@@ -81,28 +81,34 @@ python3 -m analysis.cli.run_kronos_backtest \
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
     # Failures here must NOT be fatal to the script (no bare `set -e`-tripping
-    # commands) -- three consecutive nights, a single large unrelated file
-    # (eofy_correlation.db, ~16MB) failed to transfer via pull_results.py's
-    # 600-byte dd+base64-per-SSH-round-trip chunking (a workaround from
-    # 2026-06 for an rsync-over-this-link issue that no longer reproduces --
-    # a plain `rsync` pull in this exact direction now moves the same file
-    # in well under a second) and its non-zero exit killed the whole script
-    # under `set -e`, silently skipping the Kronos import below even though
-    # predictions_kronos.json (tiny, and everything Kronos actually needs)
-    # had already landed successfully. Switched to plain rsync -- proven
-    # working and fast against production hosts -- and made both this step
-    # and the import below independently non-fatal so a failure transferring
-    # one file never blocks another.
-    if [[ -n "${ANALYSIS_MACHINE:-}" ]]; then
-        echo "==> Telling $HARRI to pull results from $ANALYSIS_MACHINE..."
-        if ! ssh "$HARRI" "cd $REMOTE_BASE && rsync -avz '$ANALYSIS_MACHINE:$REMOTE_BASE/analysis/results/' 'analysis/results/'"; then
-            echo "WARNING: pull-back from $ANALYSIS_MACHINE failed -- some result files may be stale. Kronos import (below) still attempted independently." >&2
-        fi
-    else
-        echo "==> Pushing results to $HARRI (ANALYSIS_MACHINE not set, using rsync)..."
-        if ! rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"; then
-            echo "WARNING: push to $HARRI failed -- some result files may be stale. Kronos import (below) still attempted independently." >&2
-        fi
+    # commands). History of this section, two separate bugs found and fixed:
+    #
+    # 1) (2026-06 - 2026-09-18) Used pull_results.py's 600-byte dd+base64-
+    #    per-SSH-round-trip chunking, with $HARRI pulling FROM realiti. A
+    #    single large unrelated file (eofy_correlation.db, ~16MB) failed to
+    #    transfer that way three nights running, and its non-zero exit
+    #    killed the whole script under `set -e`, silently skipping the
+    #    Kronos import below even though predictions_kronos.json (tiny, and
+    #    everything Kronos actually needs) had already landed.
+    #
+    # 2) (2026-09-19 - 2026-09-25) "Fixed" #1 by switching to plain rsync,
+    #    but kept the same $HARRI-pulls-FROM-realiti direction -- which
+    #    means THIS script (already running on realiti) was asking $HARRI to
+    #    open a SECOND, nested connection back to realiti to pull from.
+    #    That double-hop reproducibly stalled/errored ("rsync error: error
+    #    in rsync protocol data stream", "Broken pipe") every single night,
+    #    a 100% regression that silently broke Kronos for five consecutive
+    #    trading days before being caught -- because the non-fatal error
+    #    handling from fix #1 correctly kept the script alive, so nothing
+    #    ever looked "broken" in the log, it just quietly kept re-importing
+    #    yesterday's already-in-DB predictions and reporting nothing new.
+    #
+    # Fix: push directly, single-hop, FROM realiti (where this script
+    # already runs) TO $HARRI -- no nested/looped-back connection at all.
+    # Verified directly against production: 21MB, full results dir, ~1s.
+    echo "==> Pushing results to $HARRI..."
+    if ! rsync -avz "$RESULTS_DIR/" "$HARRI:$REMOTE_BASE/analysis/results/"; then
+        echo "WARNING: push to $HARRI failed -- some result files may be stale. Kronos import (below) still attempted independently." >&2
     fi
     echo "==> Importing Kronos predictions to history DB on $HARRI..."
     if ! ssh "$HARRI" "cd $REMOTE_BASE && test -f analysis/results/predictions_kronos.json && python3 -m analysis.cli.import_kronos_predictions \

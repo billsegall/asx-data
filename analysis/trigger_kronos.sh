@@ -33,11 +33,23 @@ fi
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Triggering Kronos refresh on $REALITI_HOST" | tee -a "$LOG"
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Remote log: $REALITI_HOST:$REMOTE_LOG" | tee -a "$LOG"
 
-# Launch sync.sh detached — nohup + </dev/null so SSH exits immediately.
-# WSL network drops the SSH session if we stay attached for the full run.
-ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=30 \
+# Launch sync.sh detached. `-f` tells the SSH CLIENT ITSELF to background
+# after auth (requires stdin from /dev/null, hence the redirect on the
+# remote command) -- this is the textbook-correct way to launch a detached
+# remote job. A trailing `&` on just the remote command string does NOT
+# reliably do this: even with nohup + all three fds redirected away from
+# the remote job, the outer ssh session can still block waiting for the
+# channel to close for reasons that don't depend on the backgrounded job's
+# own fds at all. Confirmed empirically against production: `... &` alone
+# hung indefinitely on a trivial 120s remote sleep (reproduced live, no
+# outer 60s wrapper timeout arriving before a full return); `ssh -f` on the
+# identical command returned in 0.08s. This is very likely what's actually
+# been behind the growing multi-minute-to-indefinite delay between
+# "Triggering" and "Job launched" in recent kronos_trigger.log entries --
+# not the WSL network itself, despite the comment this replaces assuming so.
+ssh -f -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=30 \
     -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$REALITI_HOST" \
-    "cd $REMOTE_DIR && nohup bash analysis/sync.sh > '$REMOTE_LOG' 2>&1 </dev/null &"
+    "cd $REMOTE_DIR && nohup bash analysis/sync.sh > '$REMOTE_LOG' 2>&1 </dev/null"
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job launched — waiting 6 minutes for completion..." | tee -a "$LOG"
 sleep 360
