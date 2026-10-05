@@ -30,6 +30,7 @@ import time
 
 import numpy as np
 import pandas as pd
+import torch
 from scipy import stats as scipy_stats
 
 from ..backtest.forward_returns import forward_returns
@@ -144,7 +145,15 @@ def run_pipeline(stock_db_path: str, ann_db_path: str, cache_dir: str,
     market_fwd = {}
     if xao_idx is not None:
         xao_close = close[xao_idx:xao_idx + 1, :]
-        xao_mask = mask[xao_idx:xao_idx + 1, :]
+        # XAO is an index -- its endofday.volume is 0 for ~99% of rows (no
+        # traded volume on an index, by design of the source feed). fm.mask
+        # requires volume>0, so XAO fails FeatureMatrix's own validity mask
+        # almost everywhere, which made market_fwd NaN for ~98-100% of
+        # events and silently collapsed "excess return" to raw return
+        # (confirmed live: excess_return == raw_return for 98-100% of
+        # events across every horizon). The index only needs a valid close
+        # to be usable as a baseline -- drop the volume gate for this row.
+        xao_mask = ~torch.isnan(xao_close)
         for h in horizons:
             market_fwd[h] = forward_returns(xao_close, xao_mask, h)
     else:

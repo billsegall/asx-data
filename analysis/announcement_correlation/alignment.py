@@ -73,6 +73,17 @@ def collapse_to_calendar_days(close: torch.Tensor, mask: torch.Tensor, dates: np
     value on more than one source column sharing a day (rare), the last one
     wins -- matching FeatureMatrix._build_pivots' own "keep last" dedup
     convention for duplicate (date, symbol) rows.
+
+    close2 is carried over whenever a raw close value EXISTS (non-NaN),
+    regardless of `mask` (close non-NaN & volume>0) -- gating the value
+    copy on `mask` instead of on NaN was a bug: it wiped close to NaN for
+    any symbol whose mask is False on a given day, even on days with no
+    duplication at all. This is silent and severe for index symbols like
+    XAO, whose volume is 0 for ~99% of rows by design (no traded volume on
+    an index) -- their close was being nulled out almost everywhere,
+    independent of any downstream volume-gating callers choose to apply.
+    mask2 (trading-validity) is still OR'd from the original volume-gated
+    `mask`, unaffected by this fix.
     """
     ds = date_strs(dates)
     uniq, inverse = np.unique(ds, return_inverse=True)
@@ -87,9 +98,12 @@ def collapse_to_calendar_days(close: torch.Tensor, mask: torch.Tensor, dates: np
 
     for t in range(T):
         u = int(inverse[t])
+        col_close = close[:, t]
+        have_close = ~torch.isnan(col_close)
+        if have_close.any():
+            close2[have_close, u] = col_close[have_close]
         col_mask = mask[:, t]
         if col_mask.any():
-            close2[col_mask, u] = close[col_mask, t]
             mask2[:, u] |= col_mask
         if not seen[u]:
             dates2[u] = dates[t]
