@@ -116,7 +116,16 @@ class FeatureMatrix:
         dates_idx = close_piv.index  # DatetimeIndex
 
         self._symbols = symbols
-        self._dates = (dates_idx.astype(np.int64) // 10**9).values  # unix timestamps
+        # Unix seconds. NOT dates_idx.astype(np.int64) // 10**9 -- that assumed
+        # datetime64[ns] (pandas' old universal resolution). Pandas 3.x's
+        # flexible-resolution datetime64 means the pivoted index can come out
+        # as [ms] or [s] depending on version/pipeline, and .astype(int64) then
+        # gives THAT unit's raw count, not nanoseconds -- the //10**9 silently
+        # produced values ~1e6x too small (e.g. 1790 instead of 1790863200) with
+        # no error. Confirmed live on realiti (pandas 3.0.3): dates_idx came out
+        # as datetime64[ms]. Force seconds resolution explicitly first so this
+        # is correct regardless of whatever resolution pandas happens to pick.
+        self._dates = dates_idx.astype('datetime64[s]').astype(np.int64).values
 
         N = len(symbols)
         T = len(dates_idx)
