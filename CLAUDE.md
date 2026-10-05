@@ -179,6 +179,26 @@ over-correcting the already-thin rare-type cells. Results in
 `analysis/results/announcement_correlation.db`. Run via
 `run_announcement_correlation`, below.
 
+**XAO volume caveat (bit twice, fixed 2026-10-05):** `endofday.volume` for
+XAO is 0 on ~99% of rows — normal, an index has no traded volume — but
+`FeatureMatrix.mask` requires `volume>0`, so XAO fails that mask almost
+everywhere. Two places in this module must NOT use `mask`-gated validity
+for XAO's close:
+1. `pipeline.py`'s market-baseline build — uses `~isnan(xao_close)`
+   directly, not `fm.mask`, to decide which days XAO is usable.
+2. `alignment.collapse_to_calendar_days()` — copies a close value into the
+   merged column whenever it's non-NaN, *not* only when `mask` is true.
+   Gating the copy on `mask` silently wiped XAO's close to NaN almost
+   everywhere post-collapse, re-breaking fix #1 even after it was applied.
+
+Symptom when either is wrong: `market_fwd` is NaN for nearly every
+(symbol, date), pipeline.py's NaN-fallback (`excess = raw if market is
+NaN`) fires ~98-100% of the time, and "excess return" is silently just
+raw return — which looks like "every announcement type underperforms"
+(actually just the small-cap universe's raw drift over the sample window,
+not a type-specific effect). Any other per-symbol market/index baseline
+added to this module later needs the same non-volume-gated validity rule.
+
 ### CLI scripts (run from repo root)
 ```bash
 python -m analysis.cli.run_predictions --db stockdb/stockdb.db      # current signal scores
