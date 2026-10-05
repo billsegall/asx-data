@@ -59,6 +59,9 @@ docker compose up
 - `GET /api/analysis/eofy-correlations/windows` — sub-window definitions (Late May day57-70 / Rest of Q4 day71-91) + run stats
 - `GET /api/analysis/eofy-correlations/window/<A|B>` — same filters as `/eofy-correlations`, tested against Q1-3 vs that sub-window instead of full Q4
 - `GET /api/analysis/eofy-correlations/window/<A|B>/<symbol>` — per-symbol sub-window FY detail + OLS fit
+- `GET /api/analysis/announcement-correlations` — announcement type vs forward-return (1/5/20/60 trading days, excess of XAO) by type×horizon×price_sensitive; filters: `type`, `horizon`, `price_sensitive`, `min_n`, `max_fdr_p`, `sort`, `order`, `limit`
+- `GET /api/analysis/announcement-correlations/meta` — latest run's event count + exclusion-reason breakdown
+- `GET /api/analysis/announcement-correlations/<type>/<horizon>` — per-cell detail across price_sensitive values + sample events for drill-down
 
 ### Analysis web pages
 - `GET /signals` — signal rankings dashboard (`backend/signals.html`)
@@ -135,6 +138,47 @@ it). Same exclusion guards as above otherwise; results in the same DB
 (`eofy_window_correlation` / `eofy_window_definitions` tables, `window`
 column value `'C'`). Run via `run_eofy_window_compare`, below.
 
+### Announcement-type correlation (`analysis/announcement_correlation/`, experimental)
+Does an announcement's *type* (trading halt, placement, dividend, director
+dealing, etc.) predict price direction/magnitude over the following 1/5/20/60
+trading days? Unlike `eofy_correlation`, this DOES import `analysis.core`
+(FeatureMatrix/DataLoader) — it wants GPU tensor vectorization, computing
+forward returns for every symbol/date/horizon once, then gathering at each
+announcement's specific (symbol, date) cell, rather than looping per-event
+SQL ~80k times. Headline-space-only (`.gitignore`d) `announcements.db` copy
+pulled from the `asx-announcements` sibling repo by `sync.sh`, to
+`analysis/data/announcements.db` — not checked out as a full repo on realiti.
+
+Type resolution (`types.py`): the 15 structured `extracted_*` tables in
+`announcements.db` (joined on `ids_id` alone — a few ids legitimately span
+two tickers, both legs get the same type) take precedence over a small
+headline-regex classifier (`classify.py`) covering types `extract_structured.py`
+doesn't have yet (`trading_halt`, `placement`, `rights_issue`,
+`capital_raising`, `takeover_scheme`) — kept local to this module rather than
+extended into the production scraper, since these are experimental and fully
+identifiable from headline text alone. Everything else buckets to `'other'`
+(excluded from results, just counted).
+
+Alignment (`alignment.py`) is the one real correctness trap: `FeatureMatrix.mask`
+fails on a halted stock's own halt day (`close` non-NaN & `volume>0`), so a
+trading-halt announcement's nominal day is usually itself invalid. Separates
+"nominal day" (date-string match, rolling to next trading day if announced
+at/after 4pm or on a non-trading day) from "first valid base price"
+(scans forward up to 10 trading days). `t0_lag_days` and a same-day
+`event_day_reaction` (distinct from the forward-horizon returns) are both
+kept per-event specifically to make this visible for halts.
+
+`endofday.close` is already split-adjusted at the source (see
+`fetch_splits.py` above) — `corporate_events` is used purely as an exclusion
+guard here too (drop, don't ratio-adjust), same as `eofy_correlation`.
+Excess return = raw return minus XAO's own forward return over the same
+window (XAO is a regular `endofday` symbol). BH-FDR applied only within the
+pooled (`price_sensitive='both'`) cells — the PS-split cells are reported
+but not included in that correction, to avoid both underpowering and
+over-correcting the already-thin rare-type cells. Results in
+`analysis/results/announcement_correlation.db`. Run via
+`run_announcement_correlation`, below.
+
 ### CLI scripts (run from repo root)
 ```bash
 python -m analysis.cli.run_predictions --db stockdb/stockdb.db      # current signal scores
@@ -144,6 +188,7 @@ python -m analysis.cli.run_discovery --db stockdb/stockdb.db        # IC sweep (
 python -m analysis.cli.run_portfolio_backtest --db stockdb/stockdb.db  # portfolio backtest
 python -m analysis.cli.run_eofy_correlation --db stockdb/stockdb.db --output-dir analysis/results  # EOFY correlation
 python -m analysis.cli.run_eofy_window_compare --db stockdb/stockdb.db --eofy-db analysis/results/eofy_correlation.db  # EOFY sub-window (Late May / Rest of Q4)
+python -m analysis.cli.run_announcement_correlation --db stockdb/stockdb.db --ann-db ../asx-announcements/announcements.db --output-dir analysis/results  # Announcement-type correlation
 ```
 
 ### Train/test split

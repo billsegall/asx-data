@@ -119,3 +119,7 @@ stockdb/stockdb.db-shm
 stockdb/stockdb.db-wal
 eod.csv
 analysis/results/correlations.db
+analysis/results/announcement_correlation.db
+analysis/data/*.db
+analysis/data/*.db-shm
+analysis/data/*.db-wal

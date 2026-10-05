@@ -51,8 +51,12 @@ ssh -f -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=30 \
     -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$REALITI_HOST" \
     "cd $REMOTE_DIR && nohup bash analysis/sync.sh > '$REMOTE_LOG' 2>&1 </dev/null"
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job launched — waiting 6 minutes for completion..." | tee -a "$LOG"
-sleep 360
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job launched — waiting 8 minutes for completion..." | tee -a "$LOG"
+# Bumped from 6 to 8 minutes after adding the announcement-correlation step
+# to sync.sh — this is purely the log-fetch retry budget below (the job
+# itself runs detached via nohup and finishes regardless), but a too-short
+# sleep means the log we fetch is more likely to be mid-write.
+sleep 480
 
 # Fetch the remote log regardless of exit status — retry a few times since
 # the WSL guest's network can drop transiently even after the job itself

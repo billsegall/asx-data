@@ -16,6 +16,7 @@ from ..core.feature_matrix import FeatureMatrix
 from ..core.gpu_ops import compute_ic_series, compute_ic_stats
 from ..core.train_test_split import TRAIN_CUTOFF_TS
 from ..signals.base import Signal
+from .forward_returns import forward_returns
 from .metrics import BacktestResult
 
 
@@ -55,20 +56,7 @@ class BacktestEngine:
 
     def _forward_returns(self, fm: FeatureMatrix, horizon: int) -> torch.Tensor:
         """Compute horizon-day forward returns from close prices."""
-        close = fm.build()['close']
-        mask = fm.mask
-        N, T = close.shape
-        fwd = torch.full_like(close, float('nan'))
-        if T > horizon:
-            fwd_close = close[:, horizon:]
-            base_close = close[:, :T - horizon]
-            valid = mask[:, :T - horizon] & mask[:, horizon:]
-            fwd[:, :T - horizon] = torch.where(
-                valid,
-                (fwd_close - base_close) / base_close.clamp(min=1e-8),
-                torch.tensor(float('nan'), device=close.device)
-            )
-        return fwd
+        return forward_returns(fm.build()['close'], fm.mask, horizon)
 
     def fit_threshold(self) -> float:
         """Compute signal activation threshold from training IC_IR.

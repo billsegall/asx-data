@@ -2108,6 +2108,148 @@ def api_analysis_eofy_correlations_window_symbol(window, symbol):
     })
 
 
+ANNOUNCEMENT_CORR_DB_PATH = os.path.join(ANALYSIS_RESULTS_DIR, 'announcement_correlation.db')
+
+
+def _annc_db_conn():
+    """Open announcement_correlation.db read-only. Caller must close."""
+    conn = sqlite3.connect(ANNOUNCEMENT_CORR_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA query_only = ON')
+    return conn
+
+
+@app.route('/api/analysis/announcement-correlations')
+def api_analysis_announcement_correlations():
+    """Filtered query on the announcement_correlation table.
+
+    Query params:
+      type             — exact match
+      horizon          — 1 | 5 | 20 | 60
+      price_sensitive  — '0' | '1' | 'both' (default: no filter, all three)
+      min_n            — minimum sample size (default 0)
+      max_fdr_p        — maximum fdr_p (default 1.0, i.e. no filter; only
+                         meaningful for price_sensitive='both' rows, which
+                         are the only ones FDR-corrected)
+      sort             — 'type' | 'horizon' | 'mean_excess' | 'hit_rate' | 'n' | 'fdr_p' (default 'type')
+      order            — 'asc' | 'desc' (default 'asc')
+      limit            — max rows, capped at 5000 (default 500)
+    """
+    if not os.path.exists(ANNOUNCEMENT_CORR_DB_PATH):
+        return jsonify({'error': 'No announcement correlation database available'}), 404
+
+    type_     = request.args.get('type', '').strip()
+    horizon   = request.args.get('horizon', '').strip()
+    price_sensitive = request.args.get('price_sensitive', '').strip()
+    min_n     = max(0, int(request.args.get('min_n', 0) or 0))
+    max_fdr_p = float(request.args.get('max_fdr_p', 1.0) or 1.0)
+    sort_col  = request.args.get('sort', 'type').strip()
+    order_dir = request.args.get('order', 'asc').strip().lower()
+    limit     = min(5000, max(1, int(request.args.get('limit', 500) or 500)))
+
+    _ALLOWED_SORT = {'type', 'horizon', 'mean_excess', 'hit_rate', 'n', 'fdr_p'}
+    if sort_col not in _ALLOWED_SORT:
+        sort_col = 'type'
+    if order_dir not in ('asc', 'desc'):
+        order_dir = 'asc'
+
+    clauses = []
+    params  = []
+
+    if type_:
+        clauses.append('type = ?'); params.append(type_)
+    if horizon:
+        clauses.append('horizon = ?'); params.append(int(horizon))
+    if price_sensitive in ('0', '1', 'both'):
+        clauses.append('price_sensitive = ?'); params.append(price_sensitive)
+    if min_n > 0:
+        clauses.append('n >= ?'); params.append(min_n)
+    clauses.append('(fdr_p IS NULL OR fdr_p <= ?)'); params.append(max_fdr_p)
+
+    where_sql = ' AND '.join(clauses) if clauses else '1=1'
+    sql = f"""
+        SELECT type, horizon, price_sensitive, n, mean_raw, mean_excess, median_excess,
+               std_excess, hit_rate, t_stat, p_value, sign_test_p, fdr_p, display_cutoff, run_at
+        FROM announcement_correlation
+        WHERE {where_sql}
+        ORDER BY {sort_col} {order_dir}
+        LIMIT ?
+    """
+    params.append(limit)
+
+    try:
+        conn = _annc_db_conn()
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    return jsonify({
+        'n': len(rows),
+        'results': [dict(r) for r in rows],
+    })
+
+
+@app.route('/api/analysis/announcement-correlations/meta')
+def api_analysis_announcement_correlations_meta():
+    """Latest run's event-count and exclusion-reason breakdown."""
+    if not os.path.exists(ANNOUNCEMENT_CORR_DB_PATH):
+        return jsonify({'error': 'No announcement correlation database available'}), 404
+    try:
+        conn = _annc_db_conn()
+        row = conn.execute(
+            """SELECT run_at, n_events_total, n_excluded_outside_range, n_excluded_no_valid_base,
+                      n_excluded_corporate_event, n_excluded_outlier, n_type_other, elapsed_seconds
+               FROM announcement_correlation_runs ORDER BY run_at DESC LIMIT 1"""
+        ).fetchone()
+        conn.close()
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    if row is None:
+        return jsonify({'error': 'No announcement correlation run recorded yet'}), 404
+    return jsonify(dict(row))
+
+
+@app.route('/api/analysis/announcement-correlations/<type_>/<int:horizon>')
+def api_analysis_announcement_correlations_detail(type_, horizon):
+    """Per-(type, horizon) rows across all price_sensitive values, plus a
+    sample of underlying events for drill-down/hand-verification."""
+    if not os.path.exists(ANNOUNCEMENT_CORR_DB_PATH):
+        return jsonify({'error': 'No announcement correlation database available'}), 404
+    try:
+        conn = _annc_db_conn()
+        cells = conn.execute(
+            """SELECT type, horizon, price_sensitive, n, mean_raw, mean_excess, median_excess,
+                      std_excess, hit_rate, t_stat, p_value, sign_test_p, fdr_p, display_cutoff, run_at
+               FROM announcement_correlation WHERE type = ? AND horizon = ?
+               ORDER BY price_sensitive ASC""",
+            (type_, horizon)
+        ).fetchall()
+        raw_col, excess_col = f'raw_return_{horizon}', f'excess_return_{horizon}'
+        events = conn.execute(
+            f"""SELECT ids_id, ticker, price_sensitive, announced_at, t0_lag_days,
+                       event_day_reaction, {raw_col} AS raw_return, {excess_col} AS excess_return
+                FROM announcement_correlation_events
+                WHERE type = ? AND {excess_col} IS NOT NULL
+                ORDER BY ABS({excess_col}) DESC
+                LIMIT 50""",
+            (type_,)
+        ).fetchall()
+        conn.close()
+    except sqlite3.OperationalError as exc:
+        return jsonify({'error': str(exc)}), 404
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    if not cells:
+        return jsonify({'error': f'No data for type={type_} horizon={horizon}'}), 404
+
+    return jsonify({
+        'cells': [dict(r) for r in cells],
+        'sample_events': [dict(r) for r in events],
+    })
+
+
 # ---------------------------------------------------------------------------
 # Correlation backtests — parameterized, multi-config
 # ---------------------------------------------------------------------------

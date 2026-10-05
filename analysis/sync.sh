@@ -78,6 +78,27 @@ python3 -m analysis.cli.run_kronos_backtest \
     --db "$LOCAL_DB" \
     --output-dir "$RESULTS_DIR"
 
+# Announcement-type correlation (experimental) -- pulls announcements.db from
+# $HARRI separately since it lives in a sibling repo (asx-announcements), not
+# this one. Both the pull and the analysis step are deliberately non-fatal
+# (no bare `set -e`-tripping command): this is the last, newest, most
+# experimental step in the pipeline, and must never be able to take down
+# everything above it that already succeeded.
+ANN_DB=analysis/data/announcements.db
+mkdir -p analysis/data
+if [[ $SKIP_PULL -eq 0 ]]; then
+    echo ""
+    echo "==> Pulling announcements.db from $HARRI..."
+    if ! rsync -avz "$HARRI:$REMOTE_BASE/../asx-announcements/announcements.db" "$ANN_DB"; then
+        echo "WARNING: announcements.db pull failed -- correlation step will skip or use a stale copy." >&2
+    fi
+fi
+echo ""
+echo "==> Running announcement-type correlation analysis (GPU)..."
+python3 -m analysis.cli.run_announcement_correlation \
+    --db "$LOCAL_DB" --ann-db "$ANN_DB" --output-dir "$RESULTS_DIR" \
+    || echo "WARNING: announcement correlation step failed -- other results unaffected." >&2
+
 if [[ $SKIP_PUSH -eq 0 ]]; then
     echo ""
     # Failures here must NOT be fatal to the script (no bare `set -e`-tripping
