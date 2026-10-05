@@ -129,8 +129,11 @@ def run_pipeline(stock_db_path: str, ann_db_path: str, cache_dir: str,
     fm = FeatureMatrix(eod, pd.DataFrame(columns=['symbol', 'date', 'short']),
                         split='all', cache_dir=cache_dir)
     features = fm.build()
-    close, mask, dates = features['close'], fm.mask, fm.dates
-    date_str_arr = alignment.date_strs(dates)
+    # Collapse same-calendar-day duplicate columns (see alignment.py's
+    # timezone note) BEFORE any trading-day counting, so t0_lag_days and
+    # every horizon shift below are exact calendar-trading-day counts.
+    close, mask, dates, date_str_arr = alignment.collapse_to_calendar_days(
+        features['close'], fm.mask, fm.dates)
     sym_to_idx = {s: i for i, s in enumerate(fm.symbols)}
 
     logger.info('Price matrix: %d symbols x %d dates', len(fm.symbols), len(dates))
@@ -183,8 +186,9 @@ def run_pipeline(stock_db_path: str, ann_db_path: str, cache_dir: str,
             continue
 
         event_day_reaction = None
-        if t0_idx > 0 and bool(mask[sym_idx, t0_idx - 1]):
-            prev_close = close[sym_idx, t0_idx - 1].item()
+        prev_idx, _ = alignment.find_last_valid(mask[sym_idx], nominal_idx, EVENT_DAY_MAX_LAG)
+        if prev_idx is not None:
+            prev_close = close[sym_idx, prev_idx].item()
             cur_close = close[sym_idx, t0_idx].item()
             if prev_close:
                 event_day_reaction = (cur_close - prev_close) / prev_close
