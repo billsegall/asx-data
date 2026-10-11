@@ -135,6 +135,19 @@ def _migrate_currencies():
 _migrate_currencies()
 
 
+def _migrate_endofday_date_index():
+    """Index endofday(date) so MAX(date) (e.g. /api/last-trading-day) is an
+    index seek. Without it SQLite scans all of idx_endofday_symbol_date —
+    fast when warm, but >10s from a cold page cache, which timed out the
+    asx-web proxy on the first page load after idle."""
+    c = stocks.cursor()
+    c.execute('CREATE INDEX IF NOT EXISTS idx_endofday_date ON endofday(date)')
+    stocks.commit()
+
+
+_migrate_endofday_date_index()
+
+
 ## Utility
 
 def millify(n):
