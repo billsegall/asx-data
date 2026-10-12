@@ -12,6 +12,16 @@ EXCHANGES: dict[str, dict] = {
     "ASX": {
         "timezone": "Australia/Sydney",
         "holidays": {
+            2025: {
+                '2025-01-01',  # New Year's Day
+                '2025-01-27',  # Australia Day (substitute — Jan 26 is Sunday)
+                '2025-04-18',  # Good Friday
+                '2025-04-21',  # Easter Monday
+                '2025-04-25',  # Anzac Day
+                '2025-06-09',  # King's Birthday (NSW)
+                '2025-12-25',  # Christmas Day
+                '2025-12-26',  # Boxing Day
+            },
             2026: {
                 '2026-01-01',  # New Year's Day
                 '2026-01-26',  # Australia Day
@@ -20,6 +30,16 @@ EXCHANGES: dict[str, dict] = {
                 '2026-06-08',  # King's Birthday (NSW)
                 '2026-12-25',  # Christmas Day
                 '2026-12-28',  # Boxing Day (substitute — Dec 26 is Saturday)
+            },
+            2027: {
+                '2027-01-01',  # New Year's Day
+                '2027-01-26',  # Australia Day
+                '2027-03-26',  # Good Friday
+                '2027-03-29',  # Easter Monday
+                '2027-06-14',  # King's Birthday (NSW)
+                '2027-12-27',  # Christmas Day (substitute — Dec 25 is Saturday)
+                '2027-12-28',  # Boxing Day (substitute — Dec 26 is Sunday)
+                # Anzac Day is Sunday 25 Apr; ASX open Mon 26 Apr (no substitute)
             },
         },
         "default_currency": "AUD",
