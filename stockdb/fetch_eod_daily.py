@@ -199,7 +199,8 @@ def main():
     c.execute('''UPDATE symbols SET current = 0
                  WHERE current = 1
                  AND symbol NOT IN (
-                     SELECT DISTINCT symbol FROM endofday WHERE date > ?
+                     -- no DISTINCT: lets SQLite range-scan idx_endofday_date_symbol
+                     SELECT symbol FROM endofday WHERE date > ?
                  )''', (one_year_ago,))
     db.commit()
 

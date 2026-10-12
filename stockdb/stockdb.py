@@ -142,8 +142,9 @@ class StockDB:
         print("Creating EOD indexes...")
         c.execute('drop index if exists idx_endofday_symbol_date')
         c.execute('create index idx_endofday_symbol_date on endofday(symbol, date)')
-        c.execute('drop index if exists idx_endofday_date')
-        c.execute('create index idx_endofday_date on endofday(date)')
+        c.execute('drop index if exists idx_endofday_date')  # superseded
+        c.execute('drop index if exists idx_endofday_date_symbol')
+        c.execute('create index idx_endofday_date_symbol on endofday(date, symbol)')
         c.close()
 
     def CreateIndexes(self):

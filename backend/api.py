@@ -49,6 +49,24 @@ def _reload_volume_config(signum, frame):
 signal.signal(signal.SIGHUP, _reload_volume_config)
 
 
+def _migrate_endofday_date_index():
+    """Covering index endofday(date, symbol). Serves MAX(date) (e.g.
+    /api/last-trading-day) as a seek, and lets "symbols with EOD since X"
+    (_migrate_and_refresh_currency, below) range-scan only that date slice
+    instead of all of idx_endofday_symbol_date. stockdb.db lives on a
+    spinning disk, so from a cold page cache the full scan took 15-36s —
+    timing out the asx-web proxy, and delaying startup until port bind.
+    Supersedes the earlier date-only index (not covering for symbol)."""
+    c = stocks.cursor()
+    c.execute('CREATE INDEX IF NOT EXISTS idx_endofday_date_symbol ON endofday(date, symbol)')
+    c.execute('DROP INDEX IF EXISTS idx_endofday_date')
+    stocks.commit()
+
+
+# Before _migrate_and_refresh_currency, which relies on it.
+_migrate_endofday_date_index()
+
+
 def _migrate_and_refresh_currency():
     """Add current column if missing, then mark symbols with no EOD in the past year as old.
 
@@ -72,7 +90,9 @@ def _migrate_and_refresh_currency():
     c.execute('UPDATE symbols SET current = 1')
     c.execute('''UPDATE symbols SET current = 0
                  WHERE symbol NOT IN (
-                     SELECT DISTINCT symbol FROM endofday WHERE date > ?
+                     -- no DISTINCT: with it SQLite picks the (symbol, date)
+                     -- index and scans all of it; NOT IN dedups anyway
+                     SELECT symbol FROM endofday WHERE date > ?
                  )''', (one_year_ago,))
     try:
         c.execute('''UPDATE symbols SET current = 0 WHERE symbol IN (
@@ -133,19 +153,6 @@ def _migrate_currencies():
 
 
 _migrate_currencies()
-
-
-def _migrate_endofday_date_index():
-    """Index endofday(date) so MAX(date) (e.g. /api/last-trading-day) is an
-    index seek. Without it SQLite scans all of idx_endofday_symbol_date —
-    fast when warm, but >10s from a cold page cache, which timed out the
-    asx-web proxy on the first page load after idle."""
-    c = stocks.cursor()
-    c.execute('CREATE INDEX IF NOT EXISTS idx_endofday_date ON endofday(date)')
-    stocks.commit()
-
-
-_migrate_endofday_date_index()
 
 
 ## Utility
