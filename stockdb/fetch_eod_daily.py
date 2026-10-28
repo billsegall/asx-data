@@ -16,6 +16,7 @@ import yfinance as yf
 import pandas as pd
 
 from exchanges import yf_ticker as exchange_yf_ticker
+import symbol_status
 
 # Suppress yfinance HTTP warnings and logs
 warnings.filterwarnings('ignore')
@@ -32,15 +33,185 @@ def to_unix(d):
     return time.mktime(datetime.datetime(d.year, d.month, d.day).timetuple())
 
 
+def download_rows(tickers, reverse_map, start_dt, end_dt):
+    """yf.download one batch -> [(symbol, ts, open, high, low, close, volume)].
+
+    Returns None if the download failed or came back empty. end_dt is exclusive.
+    """
+    try:
+        df = yf.download(
+            tickers,
+            start=start_dt.strftime('%Y-%m-%d'),
+            end=end_dt.strftime('%Y-%m-%d'),
+            auto_adjust=True,
+            progress=False,
+            group_by='column',
+        )
+    except Exception as e:
+        print(f" error: {e}")
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    # Normalise to MultiIndex (price_field, ticker) if single-ticker returned flat columns
+    if not isinstance(df.columns, pd.MultiIndex):
+        df.columns = pd.MultiIndex.from_tuples([(col, tickers[0]) for col in df.columns])
+
+    # Stack ticker level → index becomes (date, ticker), columns become price fields
+    try:
+        stacked = df.stack(level=1, future_stack=True)
+    except TypeError:
+        stacked = df.stack(level=1)  # older pandas
+
+    stacked = stacked.dropna(subset=['Close'])
+
+    rows = []
+    for (date_idx, ticker), row_data in stacked.iterrows():
+        sym = reverse_map.get(str(ticker))
+        if sym is None:
+            continue
+        d = date_idx.date() if hasattr(date_idx, 'date') else date_idx
+        try:
+            o  = float(row_data['Open'])
+            h  = float(row_data['High'])
+            lo = float(row_data['Low'])
+            cl = float(row_data['Close'])
+            v  = int(row_data.get('Volume', 0))
+        except (TypeError, ValueError):
+            continue
+        if any(math.isnan(x) for x in (o, h, lo, cl)):
+            continue
+        rows.append((sym, to_unix(d), o, h, lo, cl, v))
+    return rows
+
+
+def refresh_endofmonth(c, affected_months):
+    """Rebuild endofmonth (last close per symbol per month) for the given 'YYYY-MM' months."""
+    if not affected_months:
+        return
+    months = sorted(affected_months)
+    ph = ','.join('?' * len(months))
+    # Delete stale endofmonth entries for these months
+    c.execute(
+        f"DELETE FROM endofmonth WHERE strftime('%Y-%m', datetime(date,'unixepoch')) IN ({ph})",
+        months,
+    )
+    # Re-insert: last trading day close per (symbol, month)
+    c.execute(
+        f"""INSERT INTO endofmonth(symbol, date, close)
+            SELECT e.symbol, e.date, e.close
+            FROM endofday e
+            JOIN (
+                SELECT symbol,
+                       strftime('%Y-%m', datetime(date,'unixepoch')) AS ym,
+                       MAX(date) AS max_date
+                FROM endofday
+                WHERE strftime('%Y-%m', datetime(date,'unixepoch')) IN ({ph})
+                GROUP BY symbol, ym
+            ) m ON e.symbol = m.symbol AND e.date = m.max_date
+        """,
+        months,
+    )
+
+
+PROBE_DAYS = 14  # look-back window when checking switched-off listed codes for trades
+
+
+def reenable_listed(db, today, delay, include_today=True):
+    """Switch back on codes that are on the ASX official list, current=0, and trading again.
+
+    Nothing else ever sets current back to 1 once a code is switched off (no
+    EOD for 90 days, 10 consecutive misses, renamed away), so without this a
+    relisting (WMC, after years suspended), a suspension that resumes, or a
+    new listing that was on the official list before it first traded would
+    stay invisible for good. Probes those codes for any trade with volume in
+    the last PROBE_DAYS; each one that has traded is switched on and its
+    missing history since its last stored EOD is backfilled.
+
+    include_today=False stops at yesterday — for runs outside the nightly
+    fetch, where a partial intraday bar for today would make the next nightly
+    run think today is already loaded (it starts from MAX(date) + 1).
+
+    Returns the set of 'YYYY-MM' months that received rows.
+    """
+    c = db.cursor()
+    official = symbol_status.official_codes()
+    if official is None:
+        print("  Re-enable check skipped: ASX official symbol list unavailable", file=sys.stderr)
+        return set()
+    candidates = symbol_status.listed_inactive(c, official)
+    if not candidates:
+        return set()
+
+    ticker_map = {sym: exchange_yf_ticker(sym) for sym in candidates}
+    reverse_map = {v: k for k, v in ticker_map.items()}
+    tickers = list(ticker_map.values())
+    end_dt = today + datetime.timedelta(days=1) if include_today else today  # exclusive
+    probe_start = today - datetime.timedelta(days=PROBE_DAYS)
+    print(f"  Re-enable check: {len(candidates)} listed symbol(s) switched off, probing since {probe_start}")
+
+    trading = set()
+    for i in range(0, len(tickers), BATCH_SIZE):
+        rows = download_rows(tickers[i:i + BATCH_SIZE], reverse_map, probe_start, end_dt) or []
+        trading.update(r[0] for r in rows if r[6] > 0)  # volume > 0: suspended codes can carry flat zero-volume rows
+        if delay > 0 and (i + BATCH_SIZE) < len(tickers):
+            time.sleep(delay)
+    if not trading:
+        print("  Re-enable check: none trading")
+        return set()
+
+    # Backfill each from the day after its last stored EOD (or all Yahoo has, if none)
+    last = {}
+    for sym in trading:
+        r = c.execute('SELECT MAX(date) FROM endofday WHERE symbol = ?', (sym,)).fetchone()
+        last[sym] = r[0] or 0
+    earliest = min(last.values())
+    backfill_start = (datetime.date.fromtimestamp(earliest) + datetime.timedelta(days=1)
+                      if earliest else datetime.date(2000, 1, 1))
+    syms = sorted(trading)
+    inserts = []
+    for i in range(0, len(syms), BATCH_SIZE):
+        batch = [ticker_map[s] for s in syms[i:i + BATCH_SIZE]]
+        rows = download_rows(batch, reverse_map, backfill_start, end_dt) or []
+        inserts.extend(r for r in rows if r[1] > last[r[0]])
+        if delay > 0 and (i + BATCH_SIZE) < len(syms):
+            time.sleep(delay)
+
+    c.executemany(
+        'INSERT OR IGNORE INTO endofday (symbol, date, open, high, low, close, volume) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)', inserts)
+    ph = ','.join('?' * len(syms))
+    c.execute(f'UPDATE symbols SET current = 1 WHERE symbol IN ({ph})', syms)
+    try:
+        c.execute(f'DELETE FROM eod_fetch_failures WHERE symbol IN ({ph})', syms)
+    except sqlite3.OperationalError:
+        pass  # table not created yet
+    db.commit()
+    print(f"  Re-enable check: switched on {len(syms)} symbol(s), backfilled {len(inserts)} row(s): "
+          + ' '.join(syms), file=sys.stderr)
+    return {datetime.date.fromtimestamp(r[1]).strftime('%Y-%m') for r in inserts}
+
+
 def main():
     parser = argparse.ArgumentParser(description='Fetch daily EOD data from Yahoo Finance')
     parser.add_argument('--db', default='stockdb.db', help='sqlite3 database')
     parser.add_argument('--delay', type=float, default=BATCH_DELAY,
                         help=f'Seconds to sleep between batches (default: {BATCH_DELAY})')
+    parser.add_argument('--no-reenable', action='store_true',
+                        help='Skip the check that switches listed, trading-again symbols back on')
+    parser.add_argument('--reenable-only', action='store_true',
+                        help='Only run that check (and backfill), not the daily fetch')
     args = parser.parse_args()
 
     db = sqlite3.connect(args.db)
     c = db.cursor()
+
+    if args.reenable_only:
+        refresh_endofmonth(c, reenable_listed(db, datetime.date.today(), args.delay, include_today=False))
+        db.commit()
+        db.close()
+        return
 
     # Build ticker list first: current symbols only, excluding exchange-listed
     # options/warrants (their names contain "OPTION" or "WARRANT"). These are
@@ -97,57 +268,14 @@ def main():
         bn = i // BATCH_SIZE + 1
         print(f"  Batch {bn}/{total_batches} ({len(batch)} tickers)...", end='', flush=True)
 
-        try:
-            df = yf.download(
-                batch,
-                start=start_dt.strftime('%Y-%m-%d'),
-                end=end_dt.strftime('%Y-%m-%d'),
-                auto_adjust=True,
-                progress=False,
-                group_by='column',
-            )
-        except Exception as e:
-            print(f" error: {e}")
-            continue
-
-        if df is None or df.empty:
+        batch_inserts = download_rows(batch, reverse_map, start_dt, end_dt)
+        if batch_inserts is None:
             print(" no data")
             continue
-
-        # Normalise to MultiIndex (price_field, ticker) if single-ticker returned flat columns
-        if not isinstance(df.columns, pd.MultiIndex):
-            df.columns = pd.MultiIndex.from_tuples([(col, batch[0]) for col in df.columns])
-
-        # Stack ticker level → index becomes (date, ticker), columns become price fields
-        try:
-            stacked = df.stack(level=1, future_stack=True)
-        except TypeError:
-            stacked = df.stack(level=1)  # older pandas
-
-        stacked = stacked.dropna(subset=['Close'])
-
-        batch_rows = 0
-        batch_inserts = []
-        for (date_idx, ticker), row_data in stacked.iterrows():
-            sym = reverse_map.get(str(ticker))
-            if sym is None:
-                continue
-            d = date_idx.date() if hasattr(date_idx, 'date') else date_idx
-            ts = to_unix(d)
-            try:
-                o  = float(row_data['Open'])
-                h  = float(row_data['High'])
-                lo = float(row_data['Low'])
-                cl = float(row_data['Close'])
-                v  = int(row_data.get('Volume', 0))
-            except (TypeError, ValueError):
-                continue
-            if any(math.isnan(x) for x in (o, h, lo, cl)):
-                continue
-            batch_inserts.append((sym, ts, o, h, lo, cl, v))
-            affected_months.add(d.strftime('%Y-%m'))
+        for sym, ts, *_ in batch_inserts:
+            affected_months.add(datetime.date.fromtimestamp(ts).strftime('%Y-%m'))
             returned_symbols.add(sym)
-            batch_rows += 1
+        batch_rows = len(batch_inserts)
 
         # Commit batch immediately to reduce memory footprint
         if batch_inserts:
@@ -165,36 +293,17 @@ def main():
     # Remove symbols that returned data from missed set
     missed_symbols -= returned_symbols
 
+    # Codes on the official list that were switched off but are trading again
+    if not args.no_reenable:
+        affected_months |= reenable_listed(db, today, args.delay)
+
     # Refresh endofmonth for all months touched by new data
-    if affected_months:
-        months = sorted(affected_months)
-        ph = ','.join('?' * len(months))
-        # Delete stale endofmonth entries for these months
-        c.execute(
-            f"DELETE FROM endofmonth WHERE strftime('%Y-%m', datetime(date,'unixepoch')) IN ({ph})",
-            months,
-        )
-        # Re-insert: last trading day close per (symbol, month)
-        c.execute(
-            f"""INSERT INTO endofmonth(symbol, date, close)
-                SELECT e.symbol, e.date, e.close
-                FROM endofday e
-                JOIN (
-                    SELECT symbol,
-                           strftime('%Y-%m', datetime(date,'unixepoch')) AS ym,
-                           MAX(date) AS max_date
-                    FROM endofday
-                    WHERE strftime('%Y-%m', datetime(date,'unixepoch')) IN ({ph})
-                    GROUP BY symbol, ym
-                ) m ON e.symbol = m.symbol AND e.date = m.max_date
-            """,
-            months,
-        )
+    refresh_endofmonth(c, affected_months)
 
     db.commit()
 
-    # Refresh current flags: clear current=1 for symbols with no EOD data in the past year.
-    # Only touches current=1 rows — never re-enables symbols already marked as delisted/non-current.
+    # Refresh current flags: clear current=1 for symbols with no EOD data in the past 90 days.
+    # Only touches current=1 rows; switching symbols back on is reenable_listed's job.
     one_year_ago = time.time() - 90 * 24 * 3600
     c.execute('''UPDATE symbols SET current = 0
                  WHERE current = 1

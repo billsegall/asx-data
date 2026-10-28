@@ -14,6 +14,7 @@ from flask import Flask, jsonify, request, abort, make_response, Response
 # stockdb is on PYTHONPATH (../stockdb when running locally, /stockdb in Docker)
 import stockdb
 import exchanges
+import symbol_status
 
 app = Flask(__name__)
 
@@ -77,8 +78,10 @@ def _migrate_and_refresh_currency():
     here; the old, superseded code usually *does* still have recent EOD
     history and would get wrongly left as current. fetch_symbol_changes.py
     is the authoritative source for identity in that case — its
-    old_symbol/new_symbol/effective_date rows always override the EOD-based
-    guess made above, applied last so they win.
+    old_symbol/new_symbol/effective_date rows override the EOD-based guess
+    made above, applied last so they win — via symbol_status.apply_rename_status,
+    where only each code's most recent rename counts and a code with EOD after
+    it was renamed away (reissued to a new listing) is never switched off.
     """
     c = stocks.cursor()
     try:
@@ -95,13 +98,9 @@ def _migrate_and_refresh_currency():
                      SELECT symbol FROM endofday WHERE date > ?
                  )''', (one_year_ago,))
     try:
-        c.execute('''UPDATE symbols SET current = 0 WHERE symbol IN (
-                         SELECT old_symbol FROM symbol_changes WHERE effective_date <= date('now')
-                     )''')
-        c.execute('''UPDATE symbols SET current = 1 WHERE symbol IN (
-                         SELECT new_symbol FROM symbol_changes WHERE effective_date <= date('now')
-                     )''')
-    except Exception:
+        # Latest rename event per code wins; reissued codes are left alone (see symbol_status)
+        symbol_status.apply_rename_status(stocks.db)
+    except sqlite3.OperationalError:
         pass  # symbol_changes table not created yet (fresh DB)
     stocks.commit()
 

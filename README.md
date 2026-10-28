@@ -52,7 +52,24 @@ symbol | name | industry | shares | current
 ------ | ---- | -------- | ------ | -------
 BHP    | BHP GROUP LIMITED | Materials | 5,102,905,054 | 1
 
-`current = 0` for delisted or renamed symbols.
+`current = 0` for delisted or renamed symbols. Only `current = 1` symbols get
+daily EOD (`fetch_eod_daily.py`). What switches it, and why:
+
+- **Off:** no EOD for 90 days, 10 consecutive fetch misses (both in
+  `fetch_eod_daily.py`), or renamed away (`symbol_status.apply_rename_status`).
+- **Rename rule** (`stockdb/symbol_status.py`, used by backend startup and the
+  Friday `fetch_symbol_changes.py`): only each code's *most recent* rename
+  counts, because the ASX reissues codes (ZIP was renamed to DOU in 2020, then
+  Z1P to ZIP in 2022). A renamed-away code that has EOD more than 14 days
+  after the rename has been reissued to a new listing and is left on. Codes
+  renamed *to* are switched on for 30 days after the rename.
+- **Back on:** each night `fetch_eod_daily.py` probes the switched-off codes
+  that are still on the ASX official list (`symbols/asx-official.csv`); any
+  with a trade (volume > 0) in the last 14 days is switched on and its missing
+  history backfilled. That covers relistings (WMC, suspended 2022–2026), resumed
+  suspensions, and new listings that were on the list before they first traded.
+  Run it alone with `fetch_eod_daily.py --reenable-only` (stops at yesterday,
+  so it can't make that night's fetch think today is already loaded).
 
 ### shorts
 symbol | date | short

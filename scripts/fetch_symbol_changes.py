@@ -14,7 +14,11 @@ import datetime
 import os
 import re
 import sqlite3
+import sys
 import urllib.request
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'stockdb'))
+import symbol_status  # noqa: E402
 
 URL = 'https://www.asx.com.au/markets/market-resources/asx-codes-and-descriptors/asx-code-changes'
 
@@ -245,7 +249,9 @@ def store_changes(records, db_path):
 
     count_before = conn.execute('SELECT COUNT(*) FROM symbol_changes').fetchone()[0]
     today = datetime.date.today().isoformat()
-    for old_code, new_code, effective_date, new_name in records:
+    # Oldest first, so for a reused code the most recent rename sets its name
+    # (and chained renames A->B->C migrate history in order).
+    for old_code, new_code, effective_date, new_name in sorted(records, key=lambda r: r[2]):
         conn.execute(
             '''INSERT INTO symbol_changes (old_symbol, new_symbol, effective_date, new_name)
                VALUES (?, ?, ?, ?)
@@ -273,12 +279,17 @@ def store_changes(records, db_path):
                    ON CONFLICT(symbol) DO UPDATE SET
                        name     = excluded.name,
                        industry = COALESCE(symbols.industry, excluded.industry),
-                       shares   = COALESCE(symbols.shares, excluded.shares),
-                       current  = 1''',
+                       shares   = COALESCE(symbols.shares, excluded.shares)''',
                 (new_code, name, industry, shares)
             )
-            conn.execute('UPDATE symbols SET current = 0 WHERE symbol = ?', (old_code,))
             migrate_history(conn, old_code, new_code, effective_date)
+
+    # current flags are set once, from every code's most recent rename, rather
+    # than per record above: per record, a reused code's older history (ASL ->
+    # PRN in 2019) would switch off the code's current listing (MMC -> ASL in
+    # 2024) depending on processing order.
+    promoted, demoted = symbol_status.apply_rename_status(conn, today)
+    print(f'current flags from renames: {promoted} switched on, {demoted} switched off')
 
     count_after = conn.execute('SELECT COUNT(*) FROM symbol_changes').fetchone()[0]
     conn.commit()
