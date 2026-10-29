@@ -11,6 +11,11 @@ Re-run safe: INSERT OR REPLACE upserts by (symbol, event_date, event_type), so
 re-running replaces existing rows for the same event. Only events within the last 7 days
 or in the future are stored.
 
+Yahoo gives one date per event type, so a fetched date supersedes any other future
+yfinance row of that symbol and type (rescheduled results, or the same results whose
+time shifted by an hour across a DST change); those rows are deleted. Types Yahoo
+doesn't return this run are left alone.
+
 Usage:
   python3 fetch_events.py [--db /path/to/stockdb.db] [--delay SECONDS] [--symbols SYM ...]
 """
@@ -127,6 +132,13 @@ def fetch_events_for_symbol(symbol, info, cutoff_ts, now_str):
     return rows
 
 
+# Other future rows of the same symbol/type that this fetch supersedes
+SUPERSEDE_SQL = '''
+    DELETE FROM events
+     WHERE symbol = ? AND event_type = ? AND source = 'yfinance'
+       AND event_date > ? AND event_date != ?
+'''
+
 INSERT_SQL = '''
     INSERT OR REPLACE INTO events
         (symbol, event_date, end_date, event_type, title, description,
@@ -190,7 +202,9 @@ def main():
             rows = fetch_events_for_symbol(symbol, info, cutoff_ts, now_str)
             if rows:
                 try:
+                    now_ts = int(time.time())
                     for row in rows:
+                        conn.execute(SUPERSEDE_SQL, (row[0], row[3], now_ts, row[1]))
                         conn.execute(INSERT_SQL, row)
                     conn.commit()
                     ok += 1
