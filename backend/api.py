@@ -3647,6 +3647,37 @@ def api_quote(symbol):
     return jsonify(data)
 
 
+# IB Gateway rejects a second connection that reuses a live clientId (error 326).
+# Requests for /api/ib/price overlap (each holds its connection ~2s), so random
+# ids collided often; hand them out round-robin from this process's range
+# instead, and retry with the next id if the connect still fails.
+_IB_CLIENT_IDS = range(100, 200)
+_ib_client_id_lock = threading.Lock()
+_ib_client_id_next = 0
+
+
+def _next_ib_client_id():
+    global _ib_client_id_next
+    with _ib_client_id_lock:
+        cid = _IB_CLIENT_IDS[_ib_client_id_next % len(_IB_CLIENT_IDS)]
+        _ib_client_id_next += 1
+        return cid
+
+
+def _ib_connect(ib, attempts=3, **kwargs):
+    for attempt in range(attempts):
+        try:
+            ib.connect('127.0.0.1', 4001, clientId=_next_ib_client_id(), **kwargs)
+            return
+        except Exception:
+            try:
+                ib.disconnect()
+            except Exception:
+                pass
+            if attempt == attempts - 1:
+                raise
+
+
 @app.route('/api/ib/price/<symbol>')
 def api_ib_price(symbol):
     """Last price from IB Gateway. Strips .AX suffix; returns last or close price."""
@@ -3657,11 +3688,11 @@ def api_ib_price(symbol):
             return jsonify({'error': 'unauthorized'}), 401
     symbol = symbol.strip().upper().removesuffix('.AX')
     try:
-        import asyncio, random
+        import asyncio
         asyncio.set_event_loop(asyncio.new_event_loop())
         from ib_insync import IB, Stock, Contract
         ib = IB()
-        ib.connect('127.0.0.1', 4001, clientId=random.randint(100, 199), readonly=True, timeout=5)
+        _ib_connect(ib, readonly=True, timeout=5)
         ib.reqMarketDataType(4)  # delayed-frozen: returns last available price outside market hours
         is_warrant = len(symbol) >= 4 and symbol[3] == 'O'
         ib_exchange, ib_currency = exchanges.ib_contract_args()
