@@ -60,7 +60,8 @@ def fetch_ib_prices(symbols: list[str], host: str, port: int) -> dict[str, float
 
     asyncio.set_event_loop(asyncio.new_event_loop())
     ib = IB()
-    ib.connect(host, port, clientId=random.randint(100, 199), readonly=True, timeout=10)
+    # 1000+ is clear of the ids the backend (100-199) and asx-web (50-999) use
+    ib.connect(host, port, clientId=random.randint(1000, 1099), readonly=True, timeout=10)
     ib.reqMarketDataType(1)
 
     result = {}

@@ -30,7 +30,7 @@ from exchanges import ib_contract_args
 DEFAULT_DB = Path(__file__).parent.parent / 'stockdb' / 'stockdb.db'
 IB_HOST    = '127.0.0.1'
 IB_PORT    = 4001
-CLIENT_ID  = 56
+CLIENT_ID  = 1200  # clear of the backend (100-199) and asx-web (50-999) ranges
 
 
 def option_to_underlying(sym: str) -> str | None:

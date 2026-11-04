@@ -81,7 +81,8 @@ def main():
     from ib_insync import IB, Contract
 
     ib = IB()
-    ib.connect(args.host, args.port, clientId=random.randint(200, 299), readonly=True, timeout=10)
+    # 1100+ is clear of the ids the backend (100-199) and asx-web (50-999) use
+    ib.connect(args.host, args.port, clientId=random.randint(1100, 1199), readonly=True, timeout=10)
 
     # Phase 1: qualify all contracts in chunks (no rate limit on qualifyContracts)
     qualified_map = {}  # localSymbol -> contract
