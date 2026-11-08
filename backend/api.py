@@ -3687,6 +3687,13 @@ def api_ib_price(symbol):
         if provided_key != required_key:
             return jsonify({'error': 'unauthorized'}), 401
     symbol = symbol.strip().upper().removesuffix('.AX')
+    # Outside trading hours the official close beats IB's last trade (which
+    # misses the closing auction) — use it once the EOD load has it.
+    if not _asx_session_open():
+        eod = _latest_eod(symbol)
+        if eod is not None and eod[0] == _last_completed_session().isoformat():
+            return jsonify({'symbol': symbol, 'price': round(float(eod[1]), 3),
+                            'source': 'eod', 'date': eod[0]})
     try:
         import asyncio
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -3737,6 +3744,36 @@ def api_ib_price(symbol):
             pass
         app.logger.warning('api_ib_price %s failed: %s', symbol, e)
         return _eod_price_fallback(symbol, str(e))
+
+
+_ASX_SESSION_START = datetime.time(10, 0)
+_ASX_SESSION_END = datetime.time(16, 15)  # after the 16:10-16:12 closing auction
+
+
+def _asx_now():
+    from zoneinfo import ZoneInfo
+    return datetime.datetime.now(ZoneInfo(exchanges.get_exchange()['timezone']))
+
+
+def _is_trading_day(day):
+    return day.weekday() < 5 and not exchanges.is_market_closed(day)
+
+
+def _asx_session_open(now=None):
+    """True from the open until just after the closing auction on a trading day."""
+    now = now or _asx_now()
+    return _is_trading_day(now.date()) and _ASX_SESSION_START <= now.time() < _ASX_SESSION_END
+
+
+def _last_completed_session(now=None):
+    """Date of the most recent trading session whose close is final."""
+    now = now or _asx_now()
+    day = now.date()
+    if now.time() < _ASX_SESSION_END:
+        day -= datetime.timedelta(days=1)
+    while not _is_trading_day(day):
+        day -= datetime.timedelta(days=1)
+    return day
 
 
 def _latest_eod(symbol):

@@ -1,6 +1,8 @@
 # Copyright (c) 2019-2026, Bill Segall
 # All rights reserved. See LICENSE for details.
-"""/api/ib/price falls back to our own last close when IB has no price."""
+"""/api/ib/price: official close outside trading hours, and our own last
+close as a fallback when IB has no price."""
+import datetime
 import os
 import sys
 from unittest.mock import patch
@@ -23,7 +25,17 @@ def client(monkeypatch):
     return api.app.test_client()
 
 
-def test_ib_down_uses_eod_close(client):
+@pytest.fixture
+def market_open(monkeypatch):
+    monkeypatch.setattr(api, '_asx_session_open', lambda now=None: True)
+
+
+def syd(iso):
+    from zoneinfo import ZoneInfo
+    return datetime.datetime.fromisoformat(iso).replace(tzinfo=ZoneInfo('Australia/Sydney'))
+
+
+def test_ib_down_uses_eod_close(client, market_open):
     with patch.object(api, '_ib_connect', side_effect=ConnectionRefusedError('gateway down')), \
          patch.object(api, '_latest_eod', return_value=('2026-11-06', 0.0040001)):
         rv = client.get('/api/ib/price/VR1O')
@@ -31,7 +43,7 @@ def test_ib_down_uses_eod_close(client):
     assert rv.get_json() == {'symbol': 'VR1O', 'price': 0.004, 'source': 'eod', 'date': '2026-11-06'}
 
 
-def test_ib_down_and_no_eod_is_503(client):
+def test_ib_down_and_no_eod_is_503(client, market_open):
     with patch.object(api, '_ib_connect', side_effect=ConnectionRefusedError('gateway down')), \
          patch.object(api, '_latest_eod', return_value=None):
         rv = client.get('/api/ib/price/NOPE9')
@@ -45,3 +57,48 @@ def test_eod_endpoint_uses_shared_lookup(client):
     assert rv.get_json() == {'symbol': 'CSL', 'date': '2026-11-06', 'close': 202.04}
     with patch.object(api, '_latest_eod', return_value=None):
         assert client.get('/api/eod/NOPE9').status_code == 404
+
+
+@pytest.mark.parametrize('now, expected', [
+    ('2026-11-08 19:30', '2026-11-06'),  # Sunday -> Friday
+    ('2026-11-09 09:59', '2026-11-06'),  # Monday pre-open -> Friday
+    ('2026-11-09 16:14', '2026-11-06'),  # Monday before the auction is final
+    ('2026-11-09 16:15', '2026-11-09'),  # Monday after the close
+    ('2026-12-29 08:00', '2026-12-24'),  # skips Christmas + Boxing Day substitute
+    ('2027-01-01 12:00', '2026-12-31'),  # New Year's Day holiday
+])
+def test_last_completed_session(now, expected):
+    assert api._last_completed_session(syd(now)).isoformat() == expected
+
+
+@pytest.mark.parametrize('now, is_open', [
+    ('2026-11-09 09:59', False),
+    ('2026-11-09 10:00', True),
+    ('2026-11-09 16:14', True),
+    ('2026-11-09 16:15', False),
+    ('2026-11-08 12:00', False),  # Sunday
+    ('2026-12-25 12:00', False),  # holiday
+])
+def test_session_open(now, is_open):
+    assert api._asx_session_open(syd(now)) is is_open
+
+
+def test_closed_market_uses_official_close_without_ib(client, monkeypatch):
+    monkeypatch.setattr(api, '_asx_session_open', lambda now=None: False)
+    monkeypatch.setattr(api, '_last_completed_session', lambda now=None: datetime.date(2026, 11, 6))
+    with patch.object(api, '_ib_connect') as conn, \
+         patch.object(api, '_latest_eod', return_value=('2026-11-06', 202.04)):
+        rv = client.get('/api/ib/price/CSL')
+    conn.assert_not_called()
+    assert rv.get_json() == {'symbol': 'CSL', 'price': 202.04, 'source': 'eod', 'date': '2026-11-06'}
+
+
+def test_closed_market_before_eod_load_asks_ib(client, monkeypatch):
+    """16:15 until the 17:00 EOD load: today's close isn't in the table yet,
+    so IB's last trade is the newer price."""
+    monkeypatch.setattr(api, '_asx_session_open', lambda now=None: False)
+    monkeypatch.setattr(api, '_last_completed_session', lambda now=None: datetime.date(2026, 11, 9))
+    with patch.object(api, '_ib_connect', side_effect=ConnectionRefusedError('down')) as conn, \
+         patch.object(api, '_latest_eod', return_value=('2026-11-06', 202.04)):
+        client.get('/api/ib/price/CSL')
+    conn.assert_called_once()
