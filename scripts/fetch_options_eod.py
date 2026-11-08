@@ -30,7 +30,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(SCRIPT_DIR / "stockdb"))
-from exchanges import ib_contract_args
+from exchanges import ib_contract_args, is_market_closed
 
 DB_PATH    = SCRIPT_DIR / "stockdb" / "stockdb.db"
 MARKIT_URL = "https://asx.api.markitdigital.com/asx-research/1.0/companies/{}/header"
@@ -128,6 +128,10 @@ def fetch_markit_price(symbol: str, token: str) -> float | None:
         return None
 
 
+def is_trading_day(day) -> bool:
+    return day.weekday() < 5 and not is_market_closed(day)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--db',           default=str(DB_PATH))
@@ -135,6 +139,12 @@ def main():
     parser.add_argument('--host',         default=IB_HOST)
     parser.add_argument('--port',         type=int, default=IB_PORT)
     args = parser.parse_args()
+
+    # Rows are stamped with today's date, so a run on a weekend or holiday
+    # (e.g. by hand) would store prices under a day the market never traded.
+    if not is_trading_day(datetime.now().date()):
+        log.info("Not an ASX trading day; nothing to fetch")
+        return 0
 
     token = args.markit_token or os.environ.get('MARKIT_TOKEN')
     if not token:

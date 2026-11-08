@@ -160,3 +160,33 @@ class TestConsolidationAdjustment:
         db.commit()
         pending = _phase3_query(db)
         assert 'ATHO' not in pending
+
+
+# ---------------------------------------------------------------------------
+# fetch_options_eod: never stores prices under a non-trading day
+# ---------------------------------------------------------------------------
+
+def test_options_eod_trading_day():
+    import datetime
+    import fetch_options_eod
+    assert fetch_options_eod.is_trading_day(datetime.date(2026, 11, 6))       # Friday
+    assert not fetch_options_eod.is_trading_day(datetime.date(2026, 5, 2))    # Saturday
+    assert not fetch_options_eod.is_trading_day(datetime.date(2026, 4, 26))   # Sunday
+    assert not fetch_options_eod.is_trading_day(datetime.date(2026, 12, 25))  # Christmas
+
+
+def test_options_eod_skips_weekend_without_touching_db(monkeypatch, tmp_path):
+    import datetime
+    import fetch_options_eod
+
+    class Sat(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 5, 2, 17, 10)
+
+    monkeypatch.setattr(fetch_options_eod, 'datetime', Sat)
+    monkeypatch.setattr(sys, 'argv', ['fetch_options_eod.py', '--db', str(tmp_path / 'missing.db')])
+    called = []
+    monkeypatch.setattr(fetch_options_eod, 'fetch_ib_prices', lambda *a, **k: called.append(1) or {})
+    assert fetch_options_eod.main() == 0
+    assert not called
