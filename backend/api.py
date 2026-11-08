@@ -3728,7 +3728,7 @@ def api_ib_price(symbol):
         ib.disconnect()
 
         if price is None:
-            return jsonify({'error': 'no price available'}), 503
+            return _eod_price_fallback(symbol, 'no price available')
         return jsonify({'symbol': symbol, 'price': round(float(price), 3), 'source': 'ib'})
     except Exception as e:
         try:
@@ -3736,7 +3736,35 @@ def api_ib_price(symbol):
         except Exception:
             pass
         app.logger.warning('api_ib_price %s failed: %s', symbol, e)
-        return jsonify({'error': str(e)}), 503
+        return _eod_price_fallback(symbol, str(e))
+
+
+def _latest_eod(symbol):
+    """(date ISO string, close) of the symbol's latest endofday row, or None."""
+    row = stocks.cursor().execute(
+        'SELECT date, close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1',
+        (symbol,)
+    ).fetchone()
+    if not row:
+        return None
+    import datetime
+    return datetime.date.fromtimestamp(row[0]).isoformat(), row[1]
+
+
+def _eod_price_fallback(symbol, ib_error):
+    """Answer /api/ib/price from our own last close when IB has nothing.
+
+    IB's snapshot is empty outside trading hours for thinly traded options, its
+    5-day history has no bar when the option hasn't traded for a week (VR1O,
+    GNMO), and the whole history service is down during IB's weekend
+    maintenance — each of those used to be a 503 for the caller.
+    """
+    eod = _latest_eod(symbol)
+    if eod is None:
+        return jsonify({'error': ib_error}), 503
+    date_str, close = eod
+    return jsonify({'symbol': symbol, 'price': round(float(close), 3),
+                    'source': 'eod', 'date': date_str})
 
 
 @app.route('/api/eod/<symbol>')
@@ -3748,13 +3776,8 @@ def api_eod_price(symbol):
         if provided_key != required_key:
             return jsonify({'error': 'unauthorized'}), 401
     symbol = symbol.strip().upper().removesuffix('.AX')
-    c = stocks.cursor()
-    row = c.execute(
-        'SELECT date, close FROM endofday WHERE symbol = ? ORDER BY date DESC LIMIT 1',
-        (symbol,)
-    ).fetchone()
-    if not row:
+    eod = _latest_eod(symbol)
+    if eod is None:
         return jsonify({'error': f'not found: {symbol}'}), 404
-    import datetime
-    date_str = datetime.date.fromtimestamp(row[0]).isoformat()
-    return jsonify({'symbol': symbol, 'date': date_str, 'close': round(row[1], 4)})
+    date_str, close = eod
+    return jsonify({'symbol': symbol, 'date': date_str, 'close': round(close, 4)})
