@@ -81,7 +81,7 @@ make             # full rebuild of stockdb.db from all source data (slow, needed
 - **Shares outstanding**: derived at build time from `symbols/ASXListedCompanies-YYYYMMDD.csv` using `shares = mcap / last_trade_price`
 - **Shorts**: `fetch_shorts.py` → `shorts/YYYY.csv` (ASIC public CSVs, 2010–present)
 - **Prices**: purchased from eoddata.com; zip files in `asx-eod-data/zips/` (private submodule)
-- **Splits/consolidations**: `fetch_splits.py` → Yahoo Finance (run periodically; re-downloads adjusted history on new event)
+- **Splits/consolidations**: `fetch_splits.py` → Yahoo Finance (run periodically; re-downloads split-adjusted, not dividend-adjusted, history on new event)
 
 ### Database schema
 See `Database.md` for full schema. Summary:

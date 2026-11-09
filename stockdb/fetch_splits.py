@@ -4,8 +4,9 @@
 """
 Fetch stock split/consolidation events from Yahoo Finance and store in corporate_events.
 
-For any new split detected, re-downloads full adjusted history for that symbol so
-pre-split prices are correctly adjusted in endofday.
+For any new split detected, re-downloads full history for that symbol so
+pre-split prices are correctly adjusted in endofday. Yahoo's Close is
+split-adjusted but not dividend-adjusted, like the rest of endofday.
 
 Usage:
     python fetch_splits.py --db ../stockdb/stockdb.db [--symbols BHP CBA BTR] [--delay 0.1]
@@ -71,14 +72,14 @@ def _is_warrant_or_option(sym):
 
 
 def redownload_history(sym, db_cursor, db):
-    """Re-download full adjusted history for a symbol and INSERT OR REPLACE into endofday."""
+    """Re-download full split-adjusted history for a symbol and replace its endofday rows."""
     yf_sym = exchange_yf_ticker(sym)
     print(f"    Re-downloading full history for {sym}...", end='', flush=True)
     try:
         df = yf.download(
             yf_sym,
             period='max',
-            auto_adjust=True,
+            auto_adjust=False,  # Close is split-adjusted only; Adj Close would add dividends
             progress=False,
         )
     except Exception as e:
@@ -205,7 +206,7 @@ def main():
             etype = _ratio_to_type(ratio)
             print(f"  {sym}: new {etype} on {d} (ratio={ratio:.4f}) — {desc}")
 
-            # Re-download full adjusted history
+            # Re-download full split-adjusted history
             redownload_history(sym, c, db)
             redownloads += 1
 

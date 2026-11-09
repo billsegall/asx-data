@@ -4,18 +4,26 @@
 """
 Fetch daily EOD price data from Yahoo Finance and merge into endofday/endofmonth.
 
-Run daily after market close (18:30 AEST = 08:30 UTC on weekdays) to keep
-prices current between eoddata.com zip file deliveries.
+Run daily after market close to keep prices current between eoddata.com zip
+file deliveries.
 
-Re-run safe: deletes rows >= start_date before inserting, so running twice
-on the same day produces the same result.
+Each run re-fetches the last LOOKBACK_DAYS (or from the last stored date, if
+that is older) and upserts: missing rows are inserted, rows that differ from
+Yahoo's bar are updated. So a symbol Yahoo skipped one night is picked up on
+a later run, and a bar stored before Yahoo finalised it is corrected. Today's
+bar is only fetched once the ASX session is over (SESSION_DONE, Sydney time).
+Re-run safe: a second run changes nothing unless Yahoo's data changed.
+
+Prices are Yahoo's Close (split-adjusted, not dividend-adjusted), matching
+the rest of endofday.
 """
 
 import argparse, datetime, math, sqlite3, sys, time, warnings, logging
+from zoneinfo import ZoneInfo
 import yfinance as yf
 import pandas as pd
 
-from exchanges import yf_ticker as exchange_yf_ticker
+from exchanges import is_market_closed, yf_ticker as exchange_yf_ticker
 import symbol_status
 
 # Suppress yfinance HTTP warnings and logs
@@ -27,23 +35,41 @@ BATCH_DELAY = 150  # seconds between batches; ~1 hr total for ~23 batches
 
 BATCH_SIZE = 200
 
+LOOKBACK_DAYS = 7  # calendar days re-fetched every run (about five trading days)
+SYDNEY = ZoneInfo('Australia/Sydney')
+SESSION_DONE = datetime.time(16, 30)  # closing auction over, Yahoo's daily bar final
+
 
 def to_unix(d):
     """Convert a date to Unix timestamp (local midnight, matching stockdb.py convention)."""
     return time.mktime(datetime.datetime(d.year, d.month, d.day).timetuple())
 
 
+def is_trading_day(d):
+    return d.weekday() < 5 and not is_market_closed(d, 'ASX')
+
+
+def last_complete_day(now=None):
+    """Latest date whose ASX session is over (Sydney time); may be a non-trading day."""
+    now = now or datetime.datetime.now(SYDNEY)
+    d = now.date()
+    return d if now.time() >= SESSION_DONE else d - datetime.timedelta(days=1)
+
+
 def download_rows(tickers, reverse_map, start_dt, end_dt):
     """yf.download one batch -> [(symbol, ts, open, high, low, close, volume)].
 
     Returns None if the download failed or came back empty. end_dt is exclusive.
+    Bars on weekends and ASX holidays (Yahoo sometimes has them) are dropped,
+    as are bars outside [start_dt, end_dt): Yahoo can append today's live,
+    unfinished bar even when end_dt excludes today.
     """
     try:
         df = yf.download(
             tickers,
             start=start_dt.strftime('%Y-%m-%d'),
             end=end_dt.strftime('%Y-%m-%d'),
-            auto_adjust=True,
+            auto_adjust=False,  # Close is split-adjusted only; Adj Close would add dividends
             progress=False,
             group_by='column',
         )
@@ -72,6 +98,8 @@ def download_rows(tickers, reverse_map, start_dt, end_dt):
         if sym is None:
             continue
         d = date_idx.date() if hasattr(date_idx, 'date') else date_idx
+        if not (start_dt <= d < end_dt) or not is_trading_day(d):
+            continue
         try:
             o  = float(row_data['Open'])
             h  = float(row_data['High'])
@@ -87,14 +115,18 @@ def download_rows(tickers, reverse_map, start_dt, end_dt):
 
 
 def refresh_endofmonth(c, affected_months):
-    """Rebuild endofmonth (last close per symbol per month) for the given 'YYYY-MM' months."""
+    """Rebuild endofmonth (last close per symbol per month) for the given 'YYYY-MM' months.
+
+    Months are local (dates are stored as local midnight), not UTC: in UTC a
+    row for the 1st sits in the previous month and would become its month-end.
+    """
     if not affected_months:
         return
     months = sorted(affected_months)
     ph = ','.join('?' * len(months))
     # Delete stale endofmonth entries for these months
     c.execute(
-        f"DELETE FROM endofmonth WHERE strftime('%Y-%m', datetime(date,'unixepoch')) IN ({ph})",
+        f"DELETE FROM endofmonth WHERE strftime('%Y-%m', datetime(date,'unixepoch','localtime')) IN ({ph})",
         months,
     )
     # Re-insert: last trading day close per (symbol, month)
@@ -104,15 +136,22 @@ def refresh_endofmonth(c, affected_months):
             FROM endofday e
             JOIN (
                 SELECT symbol,
-                       strftime('%Y-%m', datetime(date,'unixepoch')) AS ym,
+                       strftime('%Y-%m', datetime(date,'unixepoch','localtime')) AS ym,
                        MAX(date) AS max_date
                 FROM endofday
-                WHERE strftime('%Y-%m', datetime(date,'unixepoch')) IN ({ph})
+                WHERE strftime('%Y-%m', datetime(date,'unixepoch','localtime')) IN ({ph})
                 GROUP BY symbol, ym
             ) m ON e.symbol = m.symbol AND e.date = m.max_date
         """,
         months,
     )
+
+
+def _same_bar(old, new):
+    """True if a stored (o, h, l, c, v) matches Yahoo's to float precision."""
+    if old[4] != new[4]:
+        return False
+    return all(a is not None and abs(a - b) <= 1e-6 * max(1.0, abs(b)) for a, b in zip(old[:4], new[:4]))
 
 
 PROBE_DAYS = 14  # look-back window when checking switched-off listed codes for trades
@@ -129,9 +168,9 @@ def reenable_listed(db, today, delay, include_today=True):
     the last PROBE_DAYS; each one that has traded is switched on and its
     missing history since its last stored EOD is backfilled.
 
-    include_today=False stops at yesterday — for runs outside the nightly
-    fetch, where a partial intraday bar for today would make the next nightly
-    run think today is already loaded (it starts from MAX(date) + 1).
+    include_today=False stops at the day before `today`, so no unfinished
+    intraday bar is stored. Callers normally pass last_complete_day() as
+    `today` instead.
 
     Returns the set of 'YYYY-MM' months that received rows.
     """
@@ -207,8 +246,10 @@ def main():
     db = sqlite3.connect(args.db)
     c = db.cursor()
 
+    end_day = last_complete_day()
+
     if args.reenable_only:
-        refresh_endofmonth(c, reenable_listed(db, datetime.date.today(), args.delay, include_today=False))
+        refresh_endofmonth(c, reenable_listed(db, end_day, args.delay))
         db.commit()
         db.close()
         return
@@ -235,32 +276,30 @@ def main():
         sys.exit(1)
 
     max_dt = datetime.date.fromtimestamp(row[0])
-    start_dt = max_dt + datetime.timedelta(days=1)
-    today = datetime.date.today()
+    start_dt = min(max_dt + datetime.timedelta(days=1),
+                   end_day - datetime.timedelta(days=LOOKBACK_DAYS))
+    print(f"Fetching Yahoo Finance EOD: {start_dt} → {end_day} (last stored: {max_dt})")
 
-    if start_dt > today:
-        print(f"Already up to date (max date in endofday: {max_dt})")
-        sys.exit(0)
+    # Rows already stored for these symbols in the window, to upsert against.
+    # Only rows of fetched symbols are ever touched (option rows share the table).
+    wanted = set(symbols)
+    existing = {}
+    for sym, ts, *vals in c.execute(
+            'SELECT symbol, date, open, high, low, close, volume FROM endofday WHERE date >= ?',
+            (to_unix(start_dt),)):
+        if sym in wanted:
+            existing[(sym, int(ts))] = tuple(vals)
 
-    print(f"Fetching Yahoo Finance EOD: {start_dt} → {today}")
-
-    # Delete any rows already in the target range (re-run idempotency)
-    start_ts = to_unix(start_dt)
-    c.execute('DELETE FROM endofday WHERE date >= ?', (start_ts,))
-    n_deleted = c.rowcount
-    if n_deleted:
-        print(f"  Removed {n_deleted} existing rows from {start_dt} onwards (re-run cleanup)")
     ticker_map = {sym: exchange_yf_ticker(sym) for sym in symbols}
     reverse_map = {v: k for k, v in ticker_map.items()}
     tickers = list(ticker_map.values())
 
-    print(f"  {len(symbols)} symbols, fetching {start_dt} to {today}")
+    print(f"  {len(symbols)} symbols")
 
-    end_dt = today + datetime.timedelta(days=1)  # yfinance end is exclusive
-    total_rows = 0
+    end_dt = end_day + datetime.timedelta(days=1)  # yfinance end is exclusive
+    n_inserted = n_updated = 0
     affected_months = set()
-    returned_symbols = set()
-    missed_symbols = set(symbols)
+    returned = {}  # date -> symbols with a bar that day
 
     total_batches = (len(tickers) + BATCH_SIZE - 1) // BATCH_SIZE
     for i in range(0, len(tickers), BATCH_SIZE):
@@ -268,34 +307,53 @@ def main():
         bn = i // BATCH_SIZE + 1
         print(f"  Batch {bn}/{total_batches} ({len(batch)} tickers)...", end='', flush=True)
 
-        batch_inserts = download_rows(batch, reverse_map, start_dt, end_dt)
-        if batch_inserts is None:
+        rows = download_rows(batch, reverse_map, start_dt, end_dt)
+        if rows is None:
             print(" no data")
             continue
-        for sym, ts, *_ in batch_inserts:
-            affected_months.add(datetime.date.fromtimestamp(ts).strftime('%Y-%m'))
-            returned_symbols.add(sym)
-        batch_rows = len(batch_inserts)
+        inserts, updates = [], []
+        for sym, ts, o, h, lo, cl, v in rows:
+            d = datetime.date.fromtimestamp(ts)
+            returned.setdefault(d, set()).add(sym)
+            old = existing.get((sym, int(ts)))
+            if old is None:
+                # Earlier days only gain real trades: Yahoo fills flat zero-volume
+                # bars in later that the nightly run never stored.
+                if d <= max_dt and v <= 0:
+                    continue
+                inserts.append((sym, ts, o, h, lo, cl, v))
+            elif not _same_bar(old, (o, h, lo, cl, v)):
+                updates.append((o, h, lo, cl, v, sym, ts))
+            else:
+                continue
+            affected_months.add(d.strftime('%Y-%m'))
 
         # Commit batch immediately to reduce memory footprint
-        if batch_inserts:
-            c.executemany(
-                'INSERT OR IGNORE INTO endofday (symbol, date, open, high, low, close, volume) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?)', batch_inserts)
-            db.commit()
-            total_rows += batch_rows
+        c.executemany(
+            'INSERT OR IGNORE INTO endofday (symbol, date, open, high, low, close, volume) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)', inserts)
+        c.executemany(
+            'UPDATE endofday SET open = ?, high = ?, low = ?, close = ?, volume = ? '
+            'WHERE symbol = ? AND date = ?', updates)
+        db.commit()
+        n_inserted += len(inserts)
+        n_updated += len(updates)
 
-        print(f" {batch_rows} rows")
+        print(f" {len(rows)} rows: {len(inserts)} new, {len(updates)} updated")
 
         if args.delay > 0 and (i + BATCH_SIZE) < len(tickers):
             time.sleep(args.delay)
 
-    # Remove symbols that returned data from missed set
-    missed_symbols -= returned_symbols
+    # Miss tracking looks at the latest day Yahoo had any bars for, and only when
+    # that day is new: re-runs and holidays must not count the same day twice.
+    latest = max(returned) if returned else None
+    new_day = latest is not None and latest > max_dt
+    returned_symbols = returned.get(latest, set())
+    missed_symbols = set(symbols) - returned_symbols
 
     # Codes on the official list that were switched off but are trading again
     if not args.no_reenable:
-        affected_months |= reenable_listed(db, today, args.delay)
+        affected_months |= reenable_listed(db, end_day, args.delay)
 
     # Refresh endofmonth for all months touched by new data
     refresh_endofmonth(c, affected_months)
@@ -313,9 +371,9 @@ def main():
                  )''', (one_year_ago,))
     db.commit()
 
-    # Track consecutive fetch failures — only when the market was open (we got some data).
-    # Symbols that return nothing for 5+ consecutive trading days are reported to stderr.
-    if total_rows > 0:
+    # Track consecutive fetch failures — only for a newly loaded trading day.
+    # Symbols that return nothing for 10+ consecutive trading days are reported to stderr.
+    if new_day:
         c.execute('''CREATE TABLE IF NOT EXISTS eod_fetch_failures (
             symbol            TEXT PRIMARY KEY,
             consecutive_misses INTEGER NOT NULL DEFAULT 0,
@@ -323,7 +381,7 @@ def main():
             last_miss_date    TEXT NOT NULL,
             exchange          TEXT NOT NULL DEFAULT 'ASX'
         )''')
-        today_str = today.isoformat()
+        today_str = latest.isoformat()
 
         # Reset counters for symbols that returned data today
         if returned_symbols:
@@ -370,7 +428,7 @@ def main():
 
     db.close()
 
-    print(f"\nDone: {total_rows} rows inserted for {start_dt} → {today}")
+    print(f"\nDone: {n_inserted} rows inserted, {n_updated} updated for {start_dt} → {end_day}")
 
 
 if __name__ == '__main__':

@@ -17,11 +17,11 @@ gathered at each event's specific (symbol, date) cell, rather than looping
 per-event SQL queries ~80k times.
 
 endofday.close is already split/consolidation-adjusted at the source
-(fetch_splits.py re-downloads full history via yfinance auto_adjust=True on
-every new corporate event) -- so corporate_events is used purely as an
-EXCLUSION guard here (drop any event whose [t0, t0+max_horizon] window
-overlaps a logged split/consolidation), same pattern as eofy_correlation,
-not a ratio-adjustment.
+(fetch_splits.py re-downloads full history from yfinance -- split-adjusted
+Close, not dividend-adjusted -- on every new corporate event) -- so
+corporate_events is used purely as an EXCLUSION guard here (drop any event
+whose [t0, t0+max_horizon] window overlaps a logged split/consolidation),
+same pattern as eofy_correlation, not a ratio-adjustment.
 """
 
 import logging

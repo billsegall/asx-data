@@ -68,8 +68,8 @@ daily EOD (`fetch_eod_daily.py`). What switches it, and why:
   with a trade (volume > 0) in the last 14 days is switched on and its missing
   history backfilled. That covers relistings (WMC, suspended 2022–2026), resumed
   suspensions, and new listings that were on the list before they first traded.
-  Run it alone with `fetch_eod_daily.py --reenable-only` (stops at yesterday,
-  so it can't make that night's fetch think today is already loaded).
+  Run it alone with `fetch_eod_daily.py --reenable-only` (stops at the last
+  day whose ASX session is over, like the nightly fetch).
 
 ### shorts
 symbol | date | short
