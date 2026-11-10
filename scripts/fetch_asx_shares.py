@@ -74,12 +74,14 @@ def main():
             "SELECT symbol FROM symbols WHERE current = 1 AND exchange = 'ASX' "
             "AND industry NOT IN ('Delisted', 'Index') ORDER BY symbol")]
     old = dict(conn.execute('SELECT symbol, shares FROM symbols'))
+    conn.close()  # no connection (or lock) held during the ~15 min of requests
     log.info('Fetching ASX shares on issue for %d symbols', len(syms))
 
     session = requests.Session()
     session.headers['User-Agent'] = 'Mozilla/5.0'
     updated = unchanged = missing = 0
     big = []
+    writes = []
     for i, sym in enumerate(syms, 1):
         n = fetch_shares(session, sym)
         if n is None:
@@ -92,17 +94,17 @@ def main():
                 updated += 1
                 if not prev or abs(n / prev - 1) >= 0.5:
                     big.append((sym, prev, n))
-                if not args.dry_run:
-                    conn.execute('UPDATE symbols SET shares = ? WHERE symbol = ?', (n, sym))
+                writes.append((n, sym))
         if i % 200 == 0:
-            if not args.dry_run:
-                conn.commit()
             log.info('  %d/%d: %d updated, %d unchanged, %d no figure',
                      i, len(syms), updated, unchanged, missing)
         time.sleep(args.delay)
-    if not args.dry_run:
-        conn.commit()
-    conn.close()
+    if writes and not args.dry_run:
+        # One short write transaction at the end
+        conn = sqlite3.connect(args.db, timeout=60)
+        with conn:
+            conn.executemany('UPDATE symbols SET shares = ? WHERE symbol = ?', writes)
+        conn.close()
 
     log.info('Done%s: %d updated, %d unchanged, %d with no ASX figure',
              ' (dry run)' if args.dry_run else '', updated, unchanged, missing)
