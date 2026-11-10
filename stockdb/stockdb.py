@@ -242,7 +242,10 @@ if __name__ == "__main__":
                 except Exception:
                     pass  # skip rows with missing/unparseable data
 
-        # Insert all symbols — preserve current flag for existing rows
+        # Insert all symbols — preserve current flag for existing rows.
+        # Existing share counts are kept: scripts/fetch_asx_shares.py refreshes
+        # them weekly from ASX, and the ListCorp snapshot is only a seed for
+        # new symbols (it goes stale as companies issue/buy back shares).
         for symbol, (name, industry) in d_symbols.items():
             try:
                 c.execute('''INSERT INTO symbols (symbol, name, industry, shares, current)
@@ -250,7 +253,8 @@ if __name__ == "__main__":
                              ON CONFLICT(symbol) DO UPDATE SET
                                  name     = excluded.name,
                                  industry = excluded.industry,
-                                 shares   = excluded.shares''',
+                                 shares   = CASE WHEN symbols.shares > 0 THEN symbols.shares
+                                                 ELSE excluded.shares END''',
                     (symbol, name, industry, d_shares.get(symbol, 0)))
             except Exception as error:
                 print("Insert into symbols failed", error, symbol)

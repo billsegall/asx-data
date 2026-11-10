@@ -78,7 +78,7 @@ make             # full rebuild of stockdb.db from all source data (slow, needed
 
 ### Data sources
 - **Symbols**: `fetch_symbols.py` → `symbols/asx-official.csv` (ASX official, nightly)
-- **Shares outstanding**: derived at build time from `symbols/ASXListedCompanies-YYYYMMDD.csv` using `shares = mcap / last_trade_price`
+- **Shares outstanding**: `scripts/fetch_asx_shares.py` (weekly, Sunday) sets `symbols.shares` from ASX's own figure (Markit `key-statistics` → `numOfShares`). `symbols/ASXListedCompanies-YYYYMMDD.csv` (`shares = mcap / last_trade_price`) only seeds new symbols — the daily symbol refresh keeps existing counts. After a full `make` rebuild, run `fetch_asx_shares.py` to replace the seeded values
 - **Shorts**: `fetch_shorts.py` → `shorts/YYYY.csv` (ASIC public CSVs, 2010–present)
 - **Prices**: purchased from eoddata.com; zip files in `asx-eod-data/zips/` (private submodule)
 - **Splits/consolidations**: `fetch_splits.py` → Yahoo Finance (run periodically; re-downloads split-adjusted, not dividend-adjusted, history on new event)

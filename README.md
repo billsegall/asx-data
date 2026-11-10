@@ -16,10 +16,19 @@ Historical OHLCV data was originally sourced from eoddata.com (purchased, propri
 Symbol data is fetched from the [ASX official listed companies CSV](https://www.asx.com.au/asx/research/ASXListedCompanies.csv),
 which is updated nightly. Run `make fetch_symbols` (or `make fetch_all`) to refresh it.
 
-Shares outstanding are derived at DB build time from the most recent ListCorp
-snapshot in `stockdb/symbols/ASXListedCompanies-YYYYMMDD.csv` using
-`shares = mcap / last_trade_price`. Market cap is then computed live at query
-time as `shares × latest close price`, so it stays current as price data is refreshed.
+Shares outstanding come from ASX itself: `scripts/fetch_asx_shares.py` (cron,
+Sunday 09:00) sets `symbols.shares` to each company's shares on issue from the
+Markit Digital `key-statistics` endpoint (`numOfShares`). Usage:
+
+    python3 scripts/fetch_asx_shares.py [--db PATH] [--delay SECONDS] [--dry-run]
+    python3 scripts/fetch_asx_shares.py --symbols FDR BHP
+
+The ListCorp snapshot in `stockdb/symbols/ASXListedCompanies-YYYYMMDD.csv`
+(`shares = mcap / last_trade_price`) only seeds symbols that have no count yet;
+the daily symbol refresh keeps existing counts. It is a hand-downloaded file and
+goes stale (a 2026-11 check found it matched ASX for about a quarter of symbols),
+so after a full `make` rebuild run `fetch_asx_shares.py`. Market cap is computed
+live at query time as `shares × latest close price`.
 
 ## Stock splits and consolidations
 
