@@ -102,3 +102,25 @@ def test_closed_market_before_eod_load_asks_ib(client, monkeypatch):
          patch.object(api, '_latest_eod', return_value=('2026-11-06', 202.04)):
         client.get('/api/ib/price/CSL')
     conn.assert_called_once()
+
+
+class TestKey:
+    """X-API-Key gate on /api/ib/price and /api/eod when IB_API_KEY is set."""
+
+    @pytest.fixture
+    def keyed(self, monkeypatch):
+        monkeypatch.setenv('IB_API_KEY', 's3cret')
+        return api.app.test_client()
+
+    @pytest.mark.parametrize('path', ['/api/eod/CSL', '/api/ib/price/CSL'])
+    def test_missing_wrong_and_non_ascii_rejected(self, keyed, path):
+        assert keyed.get(path).status_code == 401
+        assert keyed.get(path, headers={'X-API-Key': 'wrong'}).status_code == 401
+        assert keyed.get(path, headers={'X-API-Key': 's3cr\xe9t'}).status_code == 401
+
+    def test_query_key_no_longer_accepted(self, keyed):
+        assert keyed.get('/api/eod/CSL?key=s3cret').status_code == 401
+
+    def test_right_key_accepted(self, keyed):
+        with patch.object(api, '_latest_eod', return_value=('2026-11-06', 12.5)):
+            assert keyed.get('/api/eod/CSL', headers={'X-API-Key': 's3cret'}).status_code == 200

@@ -5,7 +5,7 @@
 # No user auth — internal network only.
 # Frontend calls this instead of importing stockdb directly.
 
-import bisect, datetime, json, math, os, signal, sqlite3, threading, time
+import bisect, datetime, hmac, json, math, os, signal, sqlite3, threading, time
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import yfinance as yf
@@ -3678,14 +3678,25 @@ def _ib_connect(ib, attempts=3, **kwargs):
                 raise
 
 
+def _ib_key_ok():
+    """True if IB_API_KEY is unset, or the X-API-Key header matches it.
+
+    Constant-time compare on bytes: compare_digest raises TypeError on
+    non-ASCII str, which would turn a bad key into a 500. Header only, so the
+    key never lands in access logs via the query string.
+    """
+    required_key = os.environ.get('IB_API_KEY')
+    if not required_key:
+        return True
+    provided_key = request.headers.get('X-API-Key', '')
+    return hmac.compare_digest(provided_key.encode(), required_key.encode())
+
+
 @app.route('/api/ib/price/<symbol>')
 def api_ib_price(symbol):
     """Last price from IB Gateway. Strips .AX suffix; returns last or close price."""
-    required_key = os.environ.get('IB_API_KEY')
-    if required_key:
-        provided_key = request.headers.get('X-API-Key') or request.args.get('key')
-        if provided_key != required_key:
-            return jsonify({'error': 'unauthorized'}), 401
+    if not _ib_key_ok():
+        return jsonify({'error': 'unauthorized'}), 401
     symbol = symbol.strip().upper().removesuffix('.AX')
     # Outside trading hours the official close beats IB's last trade (which
     # misses the closing auction) — use it once the EOD load has it.
@@ -3807,11 +3818,8 @@ def _eod_price_fallback(symbol, ib_error):
 @app.route('/api/eod/<symbol>')
 def api_eod_price(symbol):
     """Last EOD close price from the endofday table. Authenticated via IB_API_KEY."""
-    required_key = os.environ.get('IB_API_KEY')
-    if required_key:
-        provided_key = request.headers.get('X-API-Key') or request.args.get('key')
-        if provided_key != required_key:
-            return jsonify({'error': 'unauthorized'}), 401
+    if not _ib_key_ok():
+        return jsonify({'error': 'unauthorized'}), 401
     symbol = symbol.strip().upper().removesuffix('.AX')
     eod = _latest_eod(symbol)
     if eod is None:
