@@ -22,7 +22,11 @@ LOG="$LOG_DIR/kronos_$(date +%Y%m%d_%H%M%S).log"
 
 SSH_KEY="${REALITI_SSH_KEY:-$HOME/.ssh/id_ed25519_VMs}"
 
-REMOTE_LOG="/tmp/kronos_sync_$(date +%Y%m%d_%H%M%S).log"
+STAMP=$(date +%Y%m%d_%H%M%S)
+REMOTE_LOG="/tmp/kronos_sync_$STAMP.log"
+# realiti copies its log here when the job finishes (see run_and_report.sh)
+ARRIVED_LOG="$LOG_DIR/kronos_sync_$STAMP.log"
+WAIT_LIMIT=1800     # seconds; the job usually takes 5-8 minutes
 
 source "$SCRIPT_DIR/wake_realiti.sh"
 if ! ensure_realiti_up | tee -a "$LOG"; then
@@ -49,34 +53,25 @@ echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Remote log: $REALITI_HOST:$REMOTE_LOG" | 
 # not the WSL network itself, despite the comment this replaces assuming so.
 ssh -f -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=30 \
     -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$REALITI_HOST" \
-    "cd $REMOTE_DIR && nohup bash analysis/sync.sh > '$REMOTE_LOG' 2>&1 </dev/null"
+    "cd $REMOTE_DIR && nohup bash analysis/run_and_report.sh '$REMOTE_LOG' '$ARRIVED_LOG' > /dev/null 2>&1 </dev/null"
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job launched — waiting 8 minutes for completion..." | tee -a "$LOG"
-# Bumped from 6 to 8 minutes after adding the announcement-correlation step
-# to sync.sh — this is purely the log-fetch retry budget below (the job
-# itself runs detached via nohup and finishes regardless), but a too-short
-# sleep means the log we fetch is more likely to be mid-write.
-sleep 480
-
-# Fetch the remote log regardless of exit status — retry a few times since
-# the WSL guest's network can drop transiently even after the job itself
-# (which runs detached via nohup) has completed successfully.
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Fetching remote log..." | tee -a "$LOG"
-FETCHED=""
-for attempt in 1 2 3 4 5; do
-    if FETCHED=$(ssh -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=15 \
-        -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$REALITI_HOST" \
-        "cat '$REMOTE_LOG' 2>/dev/null || echo '(remote log not found)'" 2>/dev/null); then
-        break
-    fi
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Fetch attempt $attempt/5 failed (realiti unreachable), retrying in 20s..." | tee -a "$LOG"
-    sleep 20
-    FETCHED=""
+# Wait for realiti to push its log, rather than pulling it: reads from
+# realiti over Tailscale stall past ~1KB (MTU problem, see run_and_report.sh),
+# which made every pull here fail even though the job itself had finished.
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Job launched — waiting up to $((WAIT_LIMIT / 60)) minutes for its log..." | tee -a "$LOG"
+waited=0
+while [[ ! -f "$ARRIVED_LOG" ]] && (( waited < WAIT_LIMIT )); do
+    sleep 30
+    waited=$((waited + 30))
 done
-if [[ -z "$FETCHED" ]]; then
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Could not fetch remote log after 5 attempts — job was launched fine, this is just log retrieval failing. Check stockdb.db kronos_predictions table to confirm the run landed." | tee -a "$LOG"
+if [[ -f "$ARRIVED_LOG" ]]; then
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Log arrived after ${waited}s:" | tee -a "$LOG"
+    tee -a "$LOG" < "$ARRIVED_LOG"
+    if grep -q "sync.sh exit status [1-9]" "$ARRIVED_LOG"; then
+        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] sync.sh FAILED on realiti — see log above" | tee -a "$LOG" >&2
+    fi
 else
-    echo "$FETCHED" | tee -a "$LOG"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] No log from realiti after $((WAIT_LIMIT / 60)) minutes — the job may still be running or have died. Its log on realiti: $REMOTE_LOG" | tee -a "$LOG" >&2
 fi
 
 echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Done" | tee -a "$LOG"
