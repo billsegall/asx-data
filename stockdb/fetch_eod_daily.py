@@ -158,13 +158,14 @@ PROBE_DAYS = 14  # look-back window when checking switched-off listed codes for 
 
 
 def reenable_listed(db, today, delay, include_today=True):
-    """Switch back on codes that are on the ASX official list, current=0, and trading again.
+    """Switch back on codes that are switched off but trading again.
 
-    Nothing else ever sets current back to 1 once a code is switched off (no
-    EOD for 90 days, 10 consecutive misses, renamed away), so without this a
-    relisting (WMC, after years suspended), a suspension that resumes, or a
-    new listing that was on the official list before it first traded would
-    stay invisible for good. Probes those codes for any trade with volume in
+    Apart from recent renames, nothing else sets current back to 1 once a code
+    is switched off (no EOD for 90 days, 10 consecutive misses, renamed away),
+    so without this a relisting (WMC, after years suspended), a suspension that
+    resumes, a new listing that was on the official list before it first
+    traded, or an ETF switched off by a Yahoo outage would stay invisible for
+    good. Probes symbol_status.reenable_candidates for any trade with volume in
     the last PROBE_DAYS; each one that has traded is switched on and its
     missing history since its last stored EOD is backfilled.
 
@@ -179,7 +180,8 @@ def reenable_listed(db, today, delay, include_today=True):
     if official is None:
         print("  Re-enable check skipped: ASX official symbol list unavailable", file=sys.stderr)
         return set()
-    candidates = symbol_status.listed_inactive(c, official)
+    symbol_status.ensure_delisted_column(c)
+    candidates = symbol_status.reenable_candidates(c, official, today)
     if not candidates:
         return set()
 
@@ -232,6 +234,80 @@ def reenable_listed(db, today, delay, include_today=True):
     return {datetime.date.fromtimestamp(r[1]).strftime('%Y-%m') for r in inserts}
 
 
+NO_TRADE_DAYS = 90    # current=1 codes with no EOD this long are switched off
+MISS_THRESHOLD = 10   # consecutive missed trading days before a code is switched off
+
+
+def retire_symbols(db, missed_symbols, returned_symbols, latest, new_day, now_ts=None):
+    """Switch off codes that have stopped trading; return what this run switched off.
+
+    Returns {'no_trade': [codes], 'misses': [(code, misses, first_miss_date)]}:
+    only codes that went from current=1 to 0 here, so the caller reports
+    changes, not every code that has ever failed.
+
+    - no_trade: current=1 with no EOD for NO_TRADE_DAYS. Normally the miss rule
+      catches these first; this mops up codes switched back on that still
+      don't trade.
+    - misses: fetched codes with MISS_THRESHOLD+ consecutive misses (counted
+      once per newly loaded trading day) and no EOD in the last week.
+
+    eod_fetch_failures only tracks codes being fetched: rows for switched-off
+    codes are deleted (they would otherwise be reported forever).
+    """
+    c = db.cursor()
+    now_ts = now_ts if now_ts is not None else time.time()
+    c.execute('''CREATE TABLE IF NOT EXISTS eod_fetch_failures (
+        symbol            TEXT PRIMARY KEY,
+        consecutive_misses INTEGER NOT NULL DEFAULT 0,
+        first_miss_date   TEXT NOT NULL,
+        last_miss_date    TEXT NOT NULL,
+        exchange          TEXT NOT NULL DEFAULT 'ASX'
+    )''')
+
+    before = {r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1')}
+    c.execute('''UPDATE symbols SET current = 0
+                 WHERE current = 1
+                 AND symbol NOT IN (
+                     -- no DISTINCT: lets SQLite range-scan idx_endofday_date_symbol
+                     SELECT symbol FROM endofday WHERE date > ?
+                 )''', (now_ts - NO_TRADE_DAYS * 24 * 3600,))
+    no_trade = sorted(before - {r[0] for r in c.execute('SELECT symbol FROM symbols WHERE current = 1')})
+
+    misses = []
+    if new_day:
+        today_str = latest.isoformat()
+        if returned_symbols:
+            ph = ','.join('?' * len(returned_symbols))
+            c.execute(f'DELETE FROM eod_fetch_failures WHERE symbol IN ({ph})', list(returned_symbols))
+        for sym in missed_symbols:
+            c.execute('''
+                INSERT INTO eod_fetch_failures(symbol, consecutive_misses, first_miss_date, last_miss_date)
+                VALUES (?, 1, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    consecutive_misses = consecutive_misses + 1,
+                    last_miss_date     = excluded.last_miss_date
+            ''', (sym, today_str, today_str))
+
+        # Skip codes that traded within the last week (illiquid, just not today)
+        misses = c.execute(
+            'SELECT f.symbol, f.consecutive_misses, f.first_miss_date'
+            ' FROM eod_fetch_failures f JOIN symbols s ON s.symbol = f.symbol'
+            ' WHERE s.current = 1 AND f.consecutive_misses >= ?'
+            ' AND NOT EXISTS ('
+            '  SELECT 1 FROM endofday e WHERE e.symbol = f.symbol AND e.date > ?'
+            ' )'
+            ' ORDER BY f.consecutive_misses DESC, f.symbol',
+            (MISS_THRESHOLD, now_ts - 7 * 24 * 3600)
+        ).fetchall()
+        if misses:
+            ph = ','.join('?' * len(misses))
+            c.execute(f'UPDATE symbols SET current = 0 WHERE symbol IN ({ph})', [m[0] for m in misses])
+
+    c.execute('DELETE FROM eod_fetch_failures WHERE symbol IN (SELECT symbol FROM symbols WHERE current = 0)')
+    db.commit()
+    return {'no_trade': no_trade, 'misses': [tuple(m) for m in misses]}
+
+
 def main():
     parser = argparse.ArgumentParser(description='Fetch daily EOD data from Yahoo Finance')
     parser.add_argument('--db', default='stockdb.db', help='sqlite3 database')
@@ -245,6 +321,7 @@ def main():
 
     db = sqlite3.connect(args.db)
     c = db.cursor()
+    symbol_status.ensure_delisted_column(c)
 
     end_day = last_complete_day()
 
@@ -351,7 +428,7 @@ def main():
     returned_symbols = returned.get(latest, set())
     missed_symbols = set(symbols) - returned_symbols
 
-    # Codes on the official list that were switched off but are trading again
+    # Switched-off codes that are trading again
     if not args.no_reenable:
         affected_months |= reenable_listed(db, end_day, args.delay)
 
@@ -360,71 +437,25 @@ def main():
 
     db.commit()
 
-    # Refresh current flags: clear current=1 for symbols with no EOD data in the past 90 days.
-    # Only touches current=1 rows; switching symbols back on is reenable_listed's job.
-    one_year_ago = time.time() - 90 * 24 * 3600
-    c.execute('''UPDATE symbols SET current = 0
-                 WHERE current = 1
-                 AND symbol NOT IN (
-                     -- no DISTINCT: lets SQLite range-scan idx_endofday_date_symbol
-                     SELECT symbol FROM endofday WHERE date > ?
-                 )''', (one_year_ago,))
-    db.commit()
+    switched_off = retire_symbols(db, missed_symbols, returned_symbols, latest, new_day)
+    if switched_off['no_trade']:
+        # Codes something switched back on that still don't trade (stdout: not news)
+        print(f"  Switched off {len(switched_off['no_trade'])} symbol(s) with no EOD for "
+              f"{NO_TRADE_DAYS} days: " + ' '.join(switched_off['no_trade']))
+    if switched_off['misses']:
+        print(f"\n{len(switched_off['misses'])} symbol(s) switched off after {MISS_THRESHOLD}+ "
+              "consecutive fetch failures (possibly delisted/suspended):", file=sys.stderr)
+        for sym, misses, first in switched_off['misses']:
+            print(f"  {sym}: {misses} consecutive misses (since {first})", file=sys.stderr)
 
-    # Track consecutive fetch failures — only for a newly loaded trading day.
-    # Symbols that return nothing for 10+ consecutive trading days are reported to stderr.
-    if new_day:
-        c.execute('''CREATE TABLE IF NOT EXISTS eod_fetch_failures (
-            symbol            TEXT PRIMARY KEY,
-            consecutive_misses INTEGER NOT NULL DEFAULT 0,
-            first_miss_date   TEXT NOT NULL,
-            last_miss_date    TEXT NOT NULL,
-            exchange          TEXT NOT NULL DEFAULT 'ASX'
-        )''')
-        today_str = latest.isoformat()
-
-        # Reset counters for symbols that returned data today
-        if returned_symbols:
-            ph = ','.join('?' * len(returned_symbols))
-            c.execute(f'DELETE FROM eod_fetch_failures WHERE symbol IN ({ph})',
-                      list(returned_symbols))
-
-        # Increment counters for symbols with no data today
-        for sym in missed_symbols:
-            c.execute('''
-                INSERT INTO eod_fetch_failures(symbol, consecutive_misses, first_miss_date, last_miss_date)
-                VALUES (?, 1, ?, ?)
-                ON CONFLICT(symbol) DO UPDATE SET
-                    consecutive_misses = consecutive_misses + 1,
-                    last_miss_date     = excluded.last_miss_date
-            ''', (sym, today_str, today_str))
-
+    official = symbol_status.official_codes()
+    if official is not None:
+        newly, cleared = symbol_status.update_delisted(c, official, end_day)
         db.commit()
-
-        # Report any symbols at or above the threshold, but skip symbols that
-        # traded within the last 7 days (illiquid stocks that just didn't trade today).
-        MISS_THRESHOLD = 10
-        one_week_ago = time.time() - 7 * 24 * 3600
-        flagged = c.execute(
-            'SELECT f.symbol, f.consecutive_misses, f.first_miss_date'
-            ' FROM eod_fetch_failures f'
-            ' WHERE f.consecutive_misses >= ?'
-            ' AND NOT EXISTS ('
-            '  SELECT 1 FROM endofday e WHERE e.symbol = f.symbol AND e.date > ?'
-            ' )'
-            ' ORDER BY f.consecutive_misses DESC',
-            (MISS_THRESHOLD, one_week_ago)
-        ).fetchall()
-        if flagged:
-            print(f"\n{len(flagged)} symbol(s) with {MISS_THRESHOLD}+ consecutive fetch failures"
-                  " (possibly delisted/suspended):", file=sys.stderr)
-            for sym, misses, first in flagged:
-                print(f"  {sym}: {misses} consecutive misses (since {first})", file=sys.stderr)
-            flagged_syms = [sym for sym, _, _ in flagged]
-            ph = ','.join('?' * len(flagged_syms))
-            c.execute(f'UPDATE symbols SET current = 0 WHERE symbol IN ({ph})', flagged_syms)
-            print(f"  → marked {len(flagged_syms)} symbol(s) current=0", file=sys.stderr)
-            db.commit()
+        if newly or cleared:
+            shown = ' '.join(newly[:20]) + (f' … (+{len(newly) - 20})' if len(newly) > 20 else '')
+            print(f"  Delisted: {len(newly)} newly marked{': ' + shown if newly else ''}; "
+                  f"{len(cleared)} cleared{': ' + ' '.join(cleared) if cleared else ''}")
 
     db.close()
 

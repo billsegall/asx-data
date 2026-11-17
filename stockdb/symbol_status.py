@@ -9,15 +9,22 @@ for a while, repeated fetch misses, being renamed away); this module holds the
 two rules that need care because ASX reissues codes:
 
   apply_rename_status   — what symbol_changes says about a code
-  listed_inactive       — codes still on the ASX official list but switched off,
-                          which fetch_eod_daily probes and re-enables when
-                          Yahoo has prices for them (relistings, resumed
-                          suspensions, new listings that hadn't traded yet)
+  reenable_candidates   — switched-off codes that fetch_eod_daily probes and
+                          re-enables when Yahoo has trades for them (relistings,
+                          resumed suspensions, new listings that hadn't traded
+                          yet, ETFs switched off by a run of fetch misses)
+  update_delisted       — symbols.delisted_on: off the official list and no
+                          trade for DELIST_AFTER_DAYS. History is kept; the
+                          code just stops being fetched, probed and shown as live
+
+Only fetch_eod_daily's re-enable check and recent renames switch codes back
+on. The backend's startup refresh only switches codes off.
 """
 
 import csv
 import datetime
 import os
+import sqlite3
 
 # Same window fetch_symbol_changes.migrate_history uses: EOD under the old code
 # up to this long after the effective date is the renamed company's own history
@@ -30,7 +37,15 @@ RENAME_GRACE_DAYS = 14
 # and would otherwise be re-enabled on every run.
 RENAME_PROMOTE_DAYS = 30
 
-OFFICIAL_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'symbols', 'asx-official.csv')
+# Off the official list with no trade for this long = delisted (update_delisted).
+# Matches fetch_eod_daily's 90-day no-EOD switch-off.
+DELIST_AFTER_DAYS = 90
+
+# Off-list codes (ETFs, funds, hybrids) that were switched off are probed for
+# trades while their last trade is this recent (reenable_candidates).
+RECENT_TRADE_DAYS = 365
+
+OFFICIAL_CSV =os.path.join(os.path.dirname(os.path.abspath(__file__)), 'symbols', 'asx-official.csv')
 
 
 def apply_rename_status(conn, today=None):
@@ -103,10 +118,79 @@ def official_codes(path=OFFICIAL_CSV):
     return codes or None
 
 
-def listed_inactive(conn, official):
-    """current=0 codes that are still on the ASX official list (excluding options/warrants)."""
+def last_trade_dates(conn):
+    """{symbol: date of its latest endofday row}, using the local-midnight timestamps endofday stores."""
+    return {sym: datetime.date.fromtimestamp(ts)
+            for sym, ts in conn.execute('SELECT symbol, MAX(date) FROM endofday GROUP BY symbol')
+            if ts is not None}
+
+
+def reenable_candidates(conn, official, today, last_trade=None):
+    """current=0 codes worth probing for trades (excluding options/warrants and delisted codes).
+
+    Codes on the ASX official list always qualify (suspensions, relistings, new
+    listings). That list only covers companies, so ETFs, funds and hybrids never
+    appear on it: those qualify while they traded within RECENT_TRADE_DAYS, so
+    one switched off by a run of fetch misses (a Yahoo outage) comes back.
+    """
+    today = _as_date(today)
+    last_trade = last_trade if last_trade is not None else last_trade_dates(conn)
+    recent = today - datetime.timedelta(days=RECENT_TRADE_DAYS)
     rows = conn.execute(
-        "SELECT symbol FROM symbols WHERE current = 0"
+        "SELECT symbol FROM symbols WHERE current = 0 AND delisted_on IS NULL"
         " AND name NOT LIKE '%OPTION%' AND name NOT LIKE '%WARRANT%'"
     ).fetchall()
-    return sorted(r[0] for r in rows if r[0] in official)
+    return sorted(sym for (sym,) in rows
+                  if sym in official or (sym in last_trade and last_trade[sym] > recent))
+
+
+def ensure_delisted_column(conn):
+    """Add symbols.delisted_on if missing (older databases)."""
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(symbols)')}
+    if 'delisted_on' not in cols:
+        conn.execute('ALTER TABLE symbols ADD COLUMN delisted_on TEXT')
+
+
+def update_delisted(conn, official, today, last_trade=None):
+    """Set or clear symbols.delisted_on. Returns (newly delisted codes, cleared codes).
+
+    A code is delisted when it's off the ASX official list and hasn't traded for
+    DELIST_AFTER_DAYS; delisted_on is its last trade date, the closest thing we
+    have to the real delisting date. Both conditions are needed because the
+    official list leaves out ETFs, funds and hybrids. Codes with no EOD at all
+    are left alone (nothing to date them by), as are codes renamed away around
+    their last trade — a rename isn't a delisting, and symbol_changes covers it.
+    Delisted codes are switched off and no longer probed by the re-enable check.
+
+    Cleared when the code is back on the list or trading again (ASX reissues codes).
+    """
+    today = _as_date(today)
+    last_trade = last_trade if last_trade is not None else last_trade_dates(conn)
+    cutoff = today - datetime.timedelta(days=DELIST_AFTER_DAYS)
+    try:
+        renamed_away = {old: d for old, d in conn.execute(
+            'SELECT old_symbol, MAX(effective_date) FROM symbol_changes WHERE effective_date <= ? '
+            'GROUP BY old_symbol', (today.isoformat(),))}
+    except sqlite3.OperationalError:
+        renamed_away = {}  # symbol_changes not created yet (fresh DB)
+
+    newly, cleared = [], []
+    for sym, delisted_on in conn.execute('SELECT symbol, delisted_on FROM symbols').fetchall():
+        last = last_trade.get(sym)
+        gone = sym not in official and last is not None and last <= cutoff
+        if gone and sym in renamed_away:
+            renamed = datetime.date.fromisoformat(renamed_away[sym])
+            if renamed >= last - datetime.timedelta(days=RENAME_GRACE_DAYS):
+                gone = False
+        if gone and delisted_on is None:
+            newly.append((sym, last.isoformat()))
+        elif not gone and delisted_on is not None:
+            cleared.append(sym)
+    conn.executemany('UPDATE symbols SET delisted_on = ?, current = 0 WHERE symbol = ?',
+                     [(d, sym) for sym, d in newly])
+    conn.executemany('UPDATE symbols SET delisted_on = NULL WHERE symbol = ?', [(s,) for s in cleared])
+    return [sym for sym, _ in newly], cleared
+
+
+def _as_date(d):
+    return datetime.date.fromisoformat(d) if isinstance(d, str) else d

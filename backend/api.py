@@ -69,10 +69,11 @@ _migrate_endofday_date_index()
 
 
 def _migrate_and_refresh_currency():
-    """Add current column if missing, then mark symbols with no EOD in the past year as old.
+    """Add current/delisted_on columns if missing, then switch off symbols with no EOD in the past year.
 
-    Runs on every process start, so it's a blunt liveness heuristic (traded
-    recently = current) — it knows nothing about ASX code renames. A symbol
+    Runs on every process start, so it's a blunt liveness heuristic (no trade
+    for a year = not current). It never switches a code on, except for recent
+    renames below — it knows nothing else about ASX code renames. A symbol
     freshly renamed to a new code has no EOD history yet under that new code
     (real trading data takes time to arrive) and would get wrongly demoted
     here; the old, superseded code usually *does* still have recent EOD
@@ -89,10 +90,14 @@ def _migrate_and_refresh_currency():
         stocks.commit()
     except Exception:
         pass  # column already exists
+    symbol_status.ensure_delisted_column(c)
+    # Only ever switches codes off. It used to set every code current first,
+    # which revived long-dead codes on each restart (and each test run that
+    # imported this module); fetch_eod_daily's re-enable check is what switches
+    # codes back on, by probing for trades.
     one_year_ago = time.time() - 365 * 24 * 3600
-    c.execute('UPDATE symbols SET current = 1')
     c.execute('''UPDATE symbols SET current = 0
-                 WHERE symbol NOT IN (
+                 WHERE current = 1 AND symbol NOT IN (
                      -- no DISTINCT: with it SQLite picks the (symbol, date)
                      -- index and scans all of it; NOT IN dedups anyway
                      SELECT symbol FROM endofday WHERE date > ?
@@ -298,12 +303,15 @@ def _enrich_batch(symbols):
 
     # Query 5: name, industry, mcap
     c.execute(f'''
-        SELECT symbol, name, industry, shares FROM symbols
+        SELECT symbol, name, industry, shares, current, delisted_on FROM symbols
         WHERE symbol IN ({placeholders})
     ''', stale)
     for row in c.fetchall():
         result[row[0]]['name']     = row[1]
         result[row[0]]['industry'] = row[2]
+        result[row[0]]['current']  = bool(row[4])
+        # Last trade date of a code judged delisted (symbol_status.update_delisted), else None
+        result[row[0]]['delisted_on'] = row[5]
         price = result[row[0]].get('price')
         if row[3] and price:
             mcap_val = row[3] * price
@@ -588,7 +596,7 @@ def api_symbol_info(symbol):
     # the latter covers a freshly-renamed code (e.g. after a consolidation/rebrand)
     # that hasn't traded yet under the new code, so no endofday rows exist for it.
     has_eod = c.execute('SELECT 1 FROM endofday WHERE symbol = ? LIMIT 1', (symbol,)).fetchone()
-    in_symbols = c.execute('SELECT 1 FROM symbols WHERE symbol = ?', (symbol,)).fetchone()
+    in_symbols = c.execute('SELECT current, delisted_on FROM symbols WHERE symbol = ?', (symbol,)).fetchone()
     if not has_eod and not in_symbols:
         abort(404)
     name, industry, shares = stocks.LookupSymbol(symbol)
@@ -628,6 +636,8 @@ def api_symbol_info(symbol):
         'shares': millify(shares) if shares else None,
         'short_pct': short_row[0] if short_row else None,
         'options': options,
+        'current': bool(in_symbols[0]) if in_symbols else False,
+        'delisted_on': in_symbols[1] if in_symbols else None,
     })
 
 

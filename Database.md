@@ -26,7 +26,9 @@ Read-only from the web frontend. Built and maintained by the data pipeline on th
 | `name` | `TEXT` | Company name |
 | `industry` | `TEXT` | Industry group |
 | `shares` | `REAL` | Shares outstanding, derived from ListCorp snapshot: `mcap / last_trade_price` |
+| `current` | `INTEGER NOT NULL DEFAULT 1` | 1 = fetch daily EOD. See README "symbols" for what switches it |
 | `exchange` | `TEXT NOT NULL DEFAULT 'ASX'` | Exchange code (see `exchanges.py`); only `'ASX'` populated |
+| `delisted_on` | `TEXT` | YYYY-MM-DD last trade date of a code judged delisted (off the ASX official list and no trade for 90 days); NULL otherwise. Set and cleared daily by `symbol_status.update_delisted`. History is kept |
 
 ### `shorts`
 | Column | Type | Notes |
@@ -315,6 +317,8 @@ API: `GET /api/kronos/latest`, `GET /api/kronos/history`.
 
 ### `eod_fetch_failures`
 Tracks consecutive end-of-day fetch failures per symbol (used to skip stale/delisted symbols).
+Only codes still being fetched have rows: `fetch_eod_daily.retire_symbols` deletes
+the rows of switched-off codes, so the daily report only names new switch-offs.
 
 | Column | Type | Notes |
 |--------|------|-------|

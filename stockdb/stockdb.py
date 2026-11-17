@@ -54,7 +54,7 @@ class StockDB:
         c = self.db.cursor()
         if drop:
             c.execute('drop table if exists symbols')
-        c.execute("create table if not exists symbols (symbol text primary key, name text, industry text, shares real, current integer not null default 1, exchange text not null default 'ASX')")
+        c.execute("create table if not exists symbols (symbol text primary key, name text, industry text, shares real, current integer not null default 1, exchange text not null default 'ASX', delisted_on text)")
         c.close()
 
     def CreateTableShorts(self, drop):

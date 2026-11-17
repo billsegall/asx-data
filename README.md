@@ -65,20 +65,34 @@ BHP    | BHP GROUP LIMITED | Materials | 5,102,905,054 | 1
 daily EOD (`fetch_eod_daily.py`). What switches it, and why:
 
 - **Off:** no EOD for 90 days, 10 consecutive fetch misses (both in
-  `fetch_eod_daily.py`), or renamed away (`symbol_status.apply_rename_status`).
+  `fetch_eod_daily.retire_symbols`), or renamed away (`symbol_status.apply_rename_status`).
+  The nightly run's stderr (cron email) lists only codes switched off by the
+  miss rule *in that run*; the 90-day rule and delisting go to the log only.
+  Backend startup only switches codes off (no EOD for a year), never on.
 - **Rename rule** (`stockdb/symbol_status.py`, used by backend startup and the
   Friday `fetch_symbol_changes.py`): only each code's *most recent* rename
   counts, because the ASX reissues codes (ZIP was renamed to DOU in 2020, then
   Z1P to ZIP in 2022). A renamed-away code that has EOD more than 14 days
   after the rename has been reissued to a new listing and is left on. Codes
   renamed *to* are switched on for 30 days after the rename.
-- **Back on:** each night `fetch_eod_daily.py` probes the switched-off codes
-  that are still on the ASX official list (`symbols/asx-official.csv`); any
-  with a trade (volume > 0) in the last 14 days is switched on and its missing
-  history backfilled. That covers relistings (WMC, suspended 2022–2026), resumed
-  suspensions, and new listings that were on the list before they first traded.
-  Run it alone with `fetch_eod_daily.py --reenable-only` (stops at the last
-  day whose ASX session is over, like the nightly fetch).
+- **Back on:** each night `fetch_eod_daily.py` probes switched-off codes that
+  aren't delisted and are either on the ASX official list
+  (`symbols/asx-official.csv`) or traded within the last year
+  (`symbol_status.reenable_candidates`); any with a trade (volume > 0) in the
+  last 14 days is switched on and its missing history backfilled. That covers
+  relistings (WMC, suspended 2022–2026), resumed suspensions, new listings that
+  were on the list before they first traded, and ETFs/funds/hybrids switched
+  off by a Yahoo outage — the official list only covers companies, so those
+  are never on it. Run it alone with `fetch_eod_daily.py --reenable-only`
+  (stops at the last day whose ASX session is over, like the nightly fetch).
+- **Delisted:** `symbols.delisted_on` is set to a code's last trade date when
+  it's off the official list *and* hasn't traded for 90 days
+  (`symbol_status.update_delisted`, run nightly). Both conditions, because ETFs
+  are never on the list. Renamed-away codes and codes with no EOD are left
+  alone. Cleared if the code is back on the list or trades again (reissued
+  codes). Delisted codes aren't probed; `/api/enrich` and `/api/symbol/<code>`
+  return `current` and `delisted_on`, which asx-web uses to label them and
+  pause their alerts. History is never deleted.
 
 ### shorts
 symbol | date | short
