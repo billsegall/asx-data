@@ -102,8 +102,9 @@ def run_backtest(
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
-    eval_dates = get_evaluation_dates(db_path, start=start, end=end, step_days=step_days)
-    eval_dates = eval_dates[:-pred_len] if len(eval_dates) > pred_len else []
+    # Only dates with pred_len trading days after them have an actual return yet
+    eval_dates = get_evaluation_dates(db_path, start=start, end=end, step_days=step_days,
+                                      min_forward=pred_len)
     dates_to_compute = [d for d in eval_dates if d not in completed]
 
     print(f"[kronos_bt] {len(eval_dates)} eval dates total, {len(dates_to_compute)} to compute.")

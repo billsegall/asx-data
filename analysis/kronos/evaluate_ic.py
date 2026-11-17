@@ -63,9 +63,9 @@ def evaluate_ic(
     print("[kronos_ic] Loading Kronos model...")
     predictor = build_predictor(model_dir, tokenizer_dir, device=device)
 
-    eval_dates = get_evaluation_dates(db_path, start=start, end=end, step_days=step_days)
-    # Drop the last pred_len dates — can't compute actual returns for them yet
-    eval_dates = eval_dates[:-pred_len] if len(eval_dates) > pred_len else []
+    # Only dates with pred_len trading days after them have an actual return yet
+    eval_dates = get_evaluation_dates(db_path, start=start, end=end, step_days=step_days,
+                                      min_forward=pred_len)
     print(f"[kronos_ic] {len(eval_dates)} evaluation dates ({start} → {end or 'today'}, every {step_days}d)")
 
     ic_series = list(completed.items())  # [(date, ic), ...]

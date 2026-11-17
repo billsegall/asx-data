@@ -90,8 +90,14 @@ def get_evaluation_dates(
     start: str = '2025-03-01',
     end: str | None = None,
     step_days: int = 5,
+    min_forward: int = 0,
 ) -> list[str]:
-    """Return actual ASX trading dates sampled every step_days from start to end."""
+    """Return actual ASX trading dates sampled every step_days from start to end.
+
+    min_forward drops dates with fewer than that many trading days after them,
+    so a forward return can be measured. Sampling stays aligned to start, so the
+    same dates come back on every run (resume caches key on them).
+    """
     end_str = end or datetime.date.today().isoformat()
 
     start_ts = int(datetime.datetime.strptime(start, '%Y-%m-%d').timestamp())
@@ -108,7 +114,8 @@ def get_evaluation_dates(
     all_dates = dates['date'].tolist()
 
     # Sample every step_days
-    return all_dates[::step_days]
+    usable = all_dates[:len(all_dates) - min_forward] if min_forward else all_dates
+    return usable[::step_days]
 
 
 def get_actual_5d_returns(
