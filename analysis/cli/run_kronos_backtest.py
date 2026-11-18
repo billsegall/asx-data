@@ -2,8 +2,13 @@
 # All rights reserved. See LICENSE for details.
 """Kronos portfolio backtest CLI.
 
-Simulates a long-only top-N portfolio at each evaluation date using Kronos 5-day forecasts.
+Simulates a long-only top-N portfolio at each evaluation date using Kronos forecasts
+over --pred-len trading days (default 5), held for the same number of days.
 Measures actual outcomes and computes hit rate, mean return, Sharpe, max drawdown, IC IR.
+
+Evaluation dates step by --step-days, which defaults to --pred-len so holding
+periods never overlap (overlapping periods inflate t-tests and autocorrelation).
+Only dates on the current grid are reported; cached rows from other grids are dropped.
 
 Transaction costs:
     Each position incurs a round-trip cost of 2 × max(fee_per_leg, fee_pct × position_size).
@@ -15,7 +20,8 @@ Usage:
         --model-dir /abs/path/to/kronos-mini-asx \\
         --tokenizer-dir /abs/path/to/tokenizer
 
-Output: analysis/results/backtest_kronos.json
+Output: analysis/results/backtest_kronos.json (pred_len 5, read by the web page),
+        analysis/results/backtest_kronos_<N>d.json for other horizons.
 """
 
 import argparse
@@ -78,7 +84,7 @@ def run_backtest(
     output_dir: str = DEFAULT_OUTPUT_DIR,
     start: str = '2025-03-01',
     end: str | None = None,
-    step_days: int = 5,
+    step_days: int | None = None,
     lookback: int = 400,
     pred_len: int = 5,
     device: str = 'cuda',
@@ -88,7 +94,8 @@ def run_backtest(
     fee_pct: float = DEFAULT_FEE_PCT,
 ) -> dict:
 
-    output_path = os.path.join(output_dir, 'backtest_kronos.json')
+    step_days = step_days or pred_len
+    output_path = os.path.join(output_dir, output_filename(pred_len))
 
     # Resume support: reload prior per-date results
     completed = {}      # date → {'ic': float, 'forecasts': {sym: score}, 'actual': {sym: ret}}
@@ -96,9 +103,13 @@ def run_backtest(
         try:
             with open(output_path) as f:
                 prev = json.load(f)
-            for row in prev.get('dates', []):
-                completed[row['date']] = row
-            print(f"[kronos_bt] Resuming: {len(completed)} dates already computed.")
+            prev_len = prev.get('params', {}).get('pred_len', 5)
+            if prev_len != pred_len:
+                print(f"[kronos_bt] Cached results are for pred_len={prev_len}, not {pred_len}: not resuming.")
+            else:
+                for row in prev.get('dates', []):
+                    completed[row['date']] = row
+                print(f"[kronos_bt] Resuming: {len(completed)} dates already computed.")
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
@@ -108,8 +119,6 @@ def run_backtest(
     dates_to_compute = [d for d in eval_dates if d not in completed]
 
     print(f"[kronos_bt] {len(eval_dates)} eval dates total, {len(dates_to_compute)} to compute.")
-
-    date_rows = list(completed.values())
 
     if dates_to_compute:
         print("[kronos_bt] Loading OHLCV data...")
@@ -129,7 +138,7 @@ def run_backtest(
             forecasts = forecast_5d_returns(
                 predictor, ohlcv, eval_date, lookback=lookback, pred_len=pred_len
             )
-            actual = get_actual_5d_returns(db_path, eval_date, all_syms)
+            actual = get_actual_5d_returns(db_path, eval_date, all_syms, horizon=pred_len)
             ic = spearman_ic(forecasts, actual)
             elapsed = time.time() - t1
 
@@ -141,24 +150,37 @@ def run_backtest(
                 'forecasts': {s: round(v, 6) for s, v in forecasts.items()},
                 'actual':    {s: round(v, 6) for s, v in actual.items()},
             }
-            date_rows.append(row)
             completed[eval_date] = row
 
             ic_str = f"{ic:+.4f}" if ic is not None else "  None"
             print(f"  [{i+1}/{len(eval_dates)}] {eval_date}  IC={ic_str}  n={len(forecasts)}  ({elapsed:.0f}s)")
 
             # Save incrementally
-            _save(output_path, date_rows, start, end, step_days,
-                  position_size, fee_per_leg, fee_pct)
+            _save(output_path, _on_grid(completed, eval_dates), start, end, step_days,
+                  pred_len, position_size, fee_per_leg, fee_pct)
     else:
         print("[kronos_bt] All dates already computed — recomputing portfolio stats.")
 
-    return _save(output_path, date_rows, start, end, step_days,
-                 position_size, fee_per_leg, fee_pct)
+    return _save(output_path, _on_grid(completed, eval_dates), start, end, step_days,
+                 pred_len, position_size, fee_per_leg, fee_pct)
+
+
+def output_filename(pred_len: int) -> str:
+    """5-day results keep the name the web page reads; other horizons get their own file."""
+    return 'backtest_kronos.json' if pred_len == 5 else f'backtest_kronos_{pred_len}d.json'
+
+
+def _on_grid(completed: dict, eval_dates: list[str]) -> list[dict]:
+    """Rows for the current evaluation grid only, in date order.
+
+    The cache can hold dates from an older grid (sampling shifts as trading
+    days are added); their holding periods overlap the current grid's.
+    """
+    return [completed[d] for d in eval_dates if d in completed]
 
 
 def _save(
-    output_path, date_rows, start, end, step_days,
+    output_path, date_rows, start, end, step_days, pred_len,
     position_size, fee_per_leg, fee_pct,
 ) -> dict:
     cost_frac = _round_trip_cost_frac(position_size, fee_per_leg, fee_pct)
@@ -251,7 +273,7 @@ def _save(
         'generated_at': int(time.time()),
         'params': {
             'start': start, 'end': end, 'step_days': step_days,
-            'pred_len': 5, 'top_n_values': TOP_N_VALUES,
+            'pred_len': pred_len, 'top_n_values': TOP_N_VALUES,
             'position_size': position_size,
             'fee_per_leg':   fee_per_leg,
             'fee_pct':       fee_pct,
@@ -277,7 +299,10 @@ def main():
     p.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR)
     p.add_argument('--start', default='2025-03-01')
     p.add_argument('--end', default=None)
-    p.add_argument('--step-days', type=int, default=5)
+    p.add_argument('--pred-len', type=int, default=5,
+                   help='Forecast and holding period in trading days')
+    p.add_argument('--step-days', type=int, default=None,
+                   help='Trading days between evaluation dates (default: --pred-len)')
     p.add_argument('--lookback', type=int, default=400)
     p.add_argument('--device', default='cuda')
     p.add_argument('--no-resume', action='store_true')
@@ -298,6 +323,7 @@ def main():
         end=args.end,
         step_days=args.step_days,
         lookback=args.lookback,
+        pred_len=args.pred_len,
         device=args.device,
         resume=not args.no_resume,
         position_size=args.position_size,

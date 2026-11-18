@@ -68,3 +68,24 @@ def test_samples_stay_aligned_as_data_grows(tmp_path):
     a = get_evaluation_dates(short, start='2026-03-01', end='2026-12-31', min_forward=5)
     b = get_evaluation_dates(long, start='2026-03-01', end='2026-12-31', min_forward=5)
     assert b[:len(a)] == a and len(b) > len(a)
+
+
+def test_actual_returns_over_horizon(tmp_path):
+    path = str(tmp_path / 'stock.db')
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE endofday (symbol TEXT, date INTEGER, close REAL)')
+    day, rows = datetime.date(2026, 3, 2), []
+    while len(rows) < 12:
+        if day.weekday() < 5:
+            rows.append(('BHP', calendar.timegm(day.timetuple()), 10.0 + len(rows)))
+        day += datetime.timedelta(days=1)
+    conn.executemany('INSERT INTO endofday VALUES (?, ?, ?)', rows)
+    conn.commit()
+    conn.close()
+    from analysis.kronos.loader import get_actual_5d_returns
+    # Closes 10, 11, 12, ... on consecutive trading days
+    assert get_actual_5d_returns(path, '2026-03-02', ['BHP']) == {'BHP': 0.5}
+    assert get_actual_5d_returns(path, '2026-03-02', ['BHP'], horizon=10) == {'BHP': 1.0}
+    # 11 is the last horizon with a close after it (12 rows: t0 + 11)
+    assert get_actual_5d_returns(path, '2026-03-02', ['BHP'], horizon=11) == {'BHP': 1.1}
+    assert get_actual_5d_returns(path, '2026-03-02', ['BHP'], horizon=12) == {}

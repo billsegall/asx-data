@@ -122,17 +122,18 @@ def get_actual_5d_returns(
     db_path: str,
     eval_date: str,
     symbols: list[str],
+    horizon: int = 5,
 ) -> dict[str, float]:
-    """Return actual 5-trading-day forward returns from eval_date for each symbol.
+    """Return actual forward returns over `horizon` trading days from eval_date.
 
-    Uses the 5th next trading date available in endofday (not calendar days).
-    Returns {} entry omitted for symbols missing data.
+    Uses the horizon-th next trading date available in endofday (not calendar
+    days). Symbols missing data are omitted.
     """
     eval_ts = int(datetime.datetime.strptime(eval_date, '%Y-%m-%d').timestamp())
 
     with _conn(db_path) as conn:
         ph = ','.join('?' * len(symbols))
-        # Get eval_date close and the 5th subsequent close per symbol
+        # Get eval_date close and the horizon-th subsequent close per symbol
         df = pd.read_sql_query(
             f"""SELECT symbol, date, close
                 FROM endofday
@@ -147,10 +148,10 @@ def get_actual_5d_returns(
     result = {}
     for sym, grp in df.groupby('symbol', sort=False):
         grp = grp.sort_values('date').reset_index(drop=True)
-        if len(grp) < 6:
+        if len(grp) <= horizon:
             continue
         close_t0 = grp.loc[0, 'close']
-        close_t5 = grp.loc[5, 'close']
+        close_tn = grp.loc[horizon, 'close']
         if close_t0 and close_t0 > 0:
-            result[sym] = (close_t5 - close_t0) / close_t0
+            result[sym] = (close_tn - close_t0) / close_t0
     return result
