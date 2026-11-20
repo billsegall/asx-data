@@ -144,30 +144,34 @@ def get_actual_5d_returns(
 ) -> dict[str, float]:
     """Return actual forward returns over `horizon` trading days from eval_date.
 
-    Uses the horizon-th next trading date available in endofday (not calendar
-    days). Symbols missing data are omitted.
+    Close on eval_date to close on the horizon-th market trading day after it.
+    A symbol must have traded on both days; otherwise it is omitted. Taking a
+    symbol's own next rows instead would span a suspension: a code halted for
+    a year would be scored on prices from after it relisted.
     """
     eval_ts = _local_midnight_ts(eval_date)
 
     with _conn(db_path) as conn:
+        calendar_days = [r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM endofday WHERE date >= ? ORDER BY date LIMIT ?",
+            (eval_ts, horizon + 1))]
+        if len(calendar_days) <= horizon or calendar_days[0] != eval_ts:
+            return {}
+        end_ts = calendar_days[horizon]
+
         ph = ','.join('?' * len(symbols))
-        # Get eval_date close and the horizon-th subsequent close per symbol
         df = pd.read_sql_query(
             f"""SELECT symbol, date, close
                 FROM endofday
-                WHERE symbol IN ({ph}) AND date >= ?
-                ORDER BY symbol, date""",
+                WHERE symbol IN ({ph}) AND date IN (?, ?)""",
             conn,
-            params=symbols + [eval_ts],
+            params=symbols + [eval_ts, end_ts],
         )
 
     result = {}
     for sym, grp in df.groupby('symbol', sort=False):
-        grp = grp.sort_values('date').reset_index(drop=True)
-        if len(grp) <= horizon:
-            continue
-        close_t0 = grp.loc[0, 'close']
-        close_tn = grp.loc[horizon, 'close']
-        if close_t0 and close_t0 > 0:
+        closes = dict(zip(grp['date'], grp['close']))
+        close_t0, close_tn = closes.get(eval_ts), closes.get(end_ts)
+        if close_t0 and close_t0 > 0 and close_tn is not None:
             result[sym] = (close_tn - close_t0) / close_t0
     return result

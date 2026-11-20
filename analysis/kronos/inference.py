@@ -37,12 +37,15 @@ def forecast_5d_returns(
     lookback: int = 400,
     pred_len: int = 5,
     batch_size: int = 200,
+    max_stale_days: int = 7,
 ) -> dict[str, float]:
     """Forecast 5-trading-day forward returns for all symbols at eval_date.
 
     Uses only data up to and including eval_date (no lookahead).
     Returns {symbol: forecasted_5d_return}.
-    Symbols with insufficient history before eval_date are omitted.
+    Symbols with insufficient history before eval_date are omitted, as are
+    symbols whose last trade is more than max_stale_days calendar days before
+    eval_date (a suspended code's year-old prices say nothing about next week).
     """
     eval_dt = pd.Timestamp(eval_date)
 
@@ -51,6 +54,8 @@ def forecast_5d_returns(
     for sym, df in ohlcv_by_symbol.items():
         past = df[df.index <= eval_dt]
         if len(past) < lookback:
+            continue
+        if (eval_dt - past.index[-1]).days > max_stale_days:
             continue
         ctx = past.iloc[-lookback:][['open', 'high', 'low', 'close', 'volume']].copy()
         eligible[sym] = ctx

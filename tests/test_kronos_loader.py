@@ -134,3 +134,49 @@ def test_actual_return_starts_at_eval_days_close(tmp_path, machine_tz):
     conn.close()
     # Monday close 10 → 5 trading days later close 15
     assert get_actual_5d_returns(path, '2026-03-02', ['BHP']) == {'BHP': 0.5}
+
+
+def test_actual_return_skips_suspension(tmp_path):
+    # Like EMA: trades until Fri 27 Feb, suspended, relists much later. Its own
+    # "next 5 rows" would all be post-relisting prices; it must be omitted.
+    # BHP trades every day and sets the market calendar.
+    path = str(tmp_path / 'stock.db')
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE endofday (symbol TEXT, date INTEGER, close REAL)')
+    days, day = [], datetime.date(2026, 2, 23)
+    while len(days) < 15:
+        if day.weekday() < 5:
+            days.append(day)
+        day += datetime.timedelta(days=1)
+    rows = [('BHP', _aest_ts(d), 10.0 + i) for i, d in enumerate(days)]
+    rows += [('EMA', _aest_ts(d), 1.0) for d in days[:5]]
+    rows += [('EMA', _aest_ts(datetime.date(2027, 1, 4) + datetime.timedelta(days=i)), 0.5)
+             for i in range(6)]
+    # GAP trades on the eval day and 5 days later but not in between: kept
+    rows += [('GAP', _aest_ts(days[5]), 2.0), ('GAP', _aest_ts(days[10]), 3.0)]
+    conn.executemany('INSERT INTO endofday VALUES (?, ?, ?)', rows)
+    conn.commit()
+    conn.close()
+    got = get_actual_5d_returns(path, days[5].isoformat(), ['BHP', 'EMA', 'GAP'])
+    assert got == {'BHP': 5 / 15, 'GAP': 0.5}
+    # Not a trading day → nothing
+    assert get_actual_5d_returns(path, '2026-03-07', ['BHP']) == {}
+
+
+def test_forecast_skips_stale_context():
+    import pandas as pd
+    from analysis.kronos.inference import forecast_5d_returns
+
+    class Predictor:
+        def predict_batch(self, df_list, **kw):
+            self.n = len(df_list)
+            return [pd.DataFrame({'close': [df['close'].iloc[-1] * 1.1]}) for df in df_list]
+
+    def frame(end):
+        idx = pd.bdate_range(end=end, periods=10)
+        return pd.DataFrame({c: 1.0 for c in ('open', 'high', 'low', 'close', 'volume')}, index=idx)
+
+    pred = Predictor()
+    ohlcv = {'LIVE': frame('2026-03-06'), 'SLEPT': frame('2025-01-31'), 'FRI': frame('2026-03-06')}
+    got = forecast_5d_returns(pred, ohlcv, '2026-03-09', lookback=5)  # Monday
+    assert set(got) == {'LIVE', 'FRI'} and pred.n == 2
