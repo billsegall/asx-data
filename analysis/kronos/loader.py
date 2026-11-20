@@ -2,9 +2,28 @@
 # All rights reserved. See LICENSE for details.
 """Load per-symbol OHLCV DataFrames from SQLite for Kronos inference."""
 
+import calendar
 import sqlite3
 import datetime
 import pandas as pd
+
+# endofday.date is midnight AEST (14:00 UTC the day before). Brisbane has no
+# daylight saving, so this converts every row to its own trading day; reading
+# the timestamps as UTC labels each row with the previous calendar day.
+ASX_TZ = 'Australia/Brisbane'
+_AEST_OFFSET = 10 * 3600
+
+
+def _local_dates(ts: pd.Series) -> pd.Series:
+    """endofday unix timestamps → naive trading-day dates."""
+    return (pd.to_datetime(ts, unit='s', utc=True).dt.tz_convert(ASX_TZ)
+            .dt.normalize().dt.tz_localize(None))
+
+
+def _local_midnight_ts(date_str: str) -> int:
+    """'YYYY-MM-DD' → that trading day's endofday timestamp, whatever the machine's timezone."""
+    day = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+    return calendar.timegm(day.timetuple()) - _AEST_OFFSET
 
 
 def _conn(db_path: str) -> sqlite3.Connection:
@@ -59,8 +78,7 @@ def load_all_ohlcv(
             params=syms,
         )
 
-    # Normalize to date-only (strip the 14:00 UTC time from AEST-midnight timestamps)
-    df['date'] = pd.to_datetime(df['date'], unit='s').dt.tz_localize('UTC').dt.tz_convert('Australia/Sydney').dt.normalize().dt.tz_localize(None)
+    df['date'] = _local_dates(df['date'])
 
     result = {}
     for sym, grp in df.groupby('symbol', sort=False):
@@ -100,8 +118,8 @@ def get_evaluation_dates(
     """
     end_str = end or datetime.date.today().isoformat()
 
-    start_ts = int(datetime.datetime.strptime(start, '%Y-%m-%d').timestamp())
-    end_ts   = int(datetime.datetime.strptime(end_str, '%Y-%m-%d').timestamp()) + 86399
+    start_ts = _local_midnight_ts(start)
+    end_ts   = _local_midnight_ts(end_str) + 86399
 
     with _conn(db_path) as conn:
         dates = pd.read_sql_query(
@@ -110,7 +128,7 @@ def get_evaluation_dates(
             params=[start_ts, end_ts],
         )
 
-    dates['date'] = pd.to_datetime(dates['date'], unit='s').dt.strftime('%Y-%m-%d')
+    dates['date'] = _local_dates(dates['date']).dt.strftime('%Y-%m-%d')
     all_dates = dates['date'].tolist()
 
     # Sample every step_days
@@ -129,7 +147,7 @@ def get_actual_5d_returns(
     Uses the horizon-th next trading date available in endofday (not calendar
     days). Symbols missing data are omitted.
     """
-    eval_ts = int(datetime.datetime.strptime(eval_date, '%Y-%m-%d').timestamp())
+    eval_ts = _local_midnight_ts(eval_date)
 
     with _conn(db_path) as conn:
         ph = ','.join('?' * len(symbols))
@@ -142,8 +160,6 @@ def get_actual_5d_returns(
             conn,
             params=symbols + [eval_ts],
         )
-
-    df['date'] = pd.to_datetime(df['date'], unit='s')
 
     result = {}
     for sym, grp in df.groupby('symbol', sort=False):

@@ -6,10 +6,18 @@ import datetime
 import os
 import sqlite3
 import sys
+import time
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from analysis.kronos.loader import get_evaluation_dates
+from analysis.kronos.loader import get_actual_5d_returns, get_evaluation_dates
+
+
+def _aest_ts(day):
+    """How endofday stores a trading day: midnight AEST, i.e. 14:00 UTC the day before."""
+    return calendar.timegm(day.timetuple()) - 10 * 3600
 
 
 def _db(tmp_path, n_days):
@@ -22,9 +30,8 @@ def _db(tmp_path, n_days):
         if day.weekday() < 5:
             dates.append(day)
         day += datetime.timedelta(days=1)
-    # UTC midnight, so the loader's UTC date strings match the calendar days
     conn.executemany('INSERT INTO endofday VALUES (?, ?, 1.0)',
-                     [('BHP', calendar.timegm(d.timetuple())) for d in dates])
+                     [('BHP', _aest_ts(d)) for d in dates])
     conn.commit()
     conn.close()
     return path, [d.isoformat() for d in dates]
@@ -77,15 +84,53 @@ def test_actual_returns_over_horizon(tmp_path):
     day, rows = datetime.date(2026, 3, 2), []
     while len(rows) < 12:
         if day.weekday() < 5:
-            rows.append(('BHP', calendar.timegm(day.timetuple()), 10.0 + len(rows)))
+            rows.append(('BHP', _aest_ts(day), 10.0 + len(rows)))
         day += datetime.timedelta(days=1)
     conn.executemany('INSERT INTO endofday VALUES (?, ?, ?)', rows)
     conn.commit()
     conn.close()
-    from analysis.kronos.loader import get_actual_5d_returns
     # Closes 10, 11, 12, ... on consecutive trading days
     assert get_actual_5d_returns(path, '2026-03-02', ['BHP']) == {'BHP': 0.5}
     assert get_actual_5d_returns(path, '2026-03-02', ['BHP'], horizon=10) == {'BHP': 1.0}
     # 11 is the last horizon with a close after it (12 rows: t0 + 11)
     assert get_actual_5d_returns(path, '2026-03-02', ['BHP'], horizon=11) == {'BHP': 1.1}
     assert get_actual_5d_returns(path, '2026-03-02', ['BHP'], horizon=12) == {}
+
+
+@pytest.fixture(params=['UTC', 'Australia/Brisbane', 'America/New_York'])
+def machine_tz(request, monkeypatch):
+    monkeypatch.setenv('TZ', request.param)
+    time.tzset()
+    yield request.param
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_dates_are_trading_days_in_any_machine_timezone(tmp_path, machine_tz):
+    # Rows are AEST midnight; read as UTC they used to come back as the day
+    # before (Mon 2 Mar labelled Sun 1 Mar), so forecasts stopped at Friday's
+    # close while returns were measured from Monday's.
+    path, dates = _db(tmp_path, 23)
+    got = get_evaluation_dates(path, start='2026-03-02', end='2026-12-31', min_forward=5)
+    assert got[0] == '2026-03-02' == dates[0]
+    assert all(datetime.date.fromisoformat(d).weekday() < 5 for d in got)
+    # start/end bound by trading day, not by the machine's midnight
+    assert get_evaluation_dates(path, start='2026-03-03', end='2026-03-03') == ['2026-03-03']
+
+
+def test_actual_return_starts_at_eval_days_close(tmp_path, machine_tz):
+    path = str(tmp_path / 'stock.db')
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE endofday (symbol TEXT, date INTEGER, close REAL)')
+    # Fri 27 Feb close 8, then Mon 2 Mar .. closes 10, 11, ...
+    rows = [('BHP', _aest_ts(datetime.date(2026, 2, 27)), 8.0)]
+    day = datetime.date(2026, 3, 2)
+    while len(rows) < 8:
+        if day.weekday() < 5:
+            rows.append(('BHP', _aest_ts(day), 10.0 + len(rows) - 1))
+        day += datetime.timedelta(days=1)
+    conn.executemany('INSERT INTO endofday VALUES (?, ?, ?)', rows)
+    conn.commit()
+    conn.close()
+    # Monday close 10 → 5 trading days later close 15
+    assert get_actual_5d_returns(path, '2026-03-02', ['BHP']) == {'BHP': 0.5}
