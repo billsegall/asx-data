@@ -144,10 +144,13 @@ def get_actual_5d_returns(
 ) -> dict[str, float]:
     """Return actual forward returns over `horizon` trading days from eval_date.
 
-    Close on eval_date to close on the horizon-th market trading day after it.
-    A symbol must have traded on both days; otherwise it is omitted. Taking a
-    symbol's own next rows instead would span a suspension: a code halted for
-    a year would be scored on prices from after it relisted.
+    Entry is the close on eval_date; a symbol that didn't trade that day is
+    omitted (you couldn't have bought it). Exit is its last close on or before
+    the horizon-th market trading day after eval_date, so a code halted
+    mid-hold is valued at its last trade. Exit never requires a trade on the
+    exit day: that would choose symbols using information from after entry.
+    Taking a symbol's own next rows instead would span a suspension: a code
+    halted for a year would be scored on prices from after it relisted.
     """
     eval_ts = _local_midnight_ts(eval_date)
 
@@ -163,15 +166,17 @@ def get_actual_5d_returns(
         df = pd.read_sql_query(
             f"""SELECT symbol, date, close
                 FROM endofday
-                WHERE symbol IN ({ph}) AND date IN (?, ?)""",
+                WHERE symbol IN ({ph}) AND date >= ? AND date <= ?""",
             conn,
             params=symbols + [eval_ts, end_ts],
         )
 
     result = {}
     for sym, grp in df.groupby('symbol', sort=False):
-        closes = dict(zip(grp['date'], grp['close']))
-        close_t0, close_tn = closes.get(eval_ts), closes.get(end_ts)
-        if close_t0 and close_t0 > 0 and close_tn is not None:
+        grp = grp.sort_values('date')
+        if grp['date'].iloc[0] != eval_ts:
+            continue
+        close_t0, close_tn = grp['close'].iloc[0], grp['close'].iloc[-1]
+        if close_t0 and close_t0 > 0:
             result[sym] = (close_tn - close_t0) / close_t0
     return result

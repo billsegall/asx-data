@@ -154,11 +154,15 @@ def test_actual_return_skips_suspension(tmp_path):
              for i in range(6)]
     # GAP trades on the eval day and 5 days later but not in between: kept
     rows += [('GAP', _aest_ts(days[5]), 2.0), ('GAP', _aest_ts(days[10]), 3.0)]
+    # HALT is bought on the eval day, last trades 2 days later, then halts:
+    # valued at that last trade, not dropped (dropping would use hindsight)
+    rows += [('HALT', _aest_ts(days[5]), 4.0), ('HALT', _aest_ts(days[7]), 3.0),
+             ('HALT', _aest_ts(days[12]), 9.0)]
     conn.executemany('INSERT INTO endofday VALUES (?, ?, ?)', rows)
     conn.commit()
     conn.close()
-    got = get_actual_5d_returns(path, days[5].isoformat(), ['BHP', 'EMA', 'GAP'])
-    assert got == {'BHP': 5 / 15, 'GAP': 0.5}
+    got = get_actual_5d_returns(path, days[5].isoformat(), ['BHP', 'EMA', 'GAP', 'HALT'])
+    assert got == {'BHP': 5 / 15, 'GAP': 0.5, 'HALT': -0.25}
     # Not a trading day → nothing
     assert get_actual_5d_returns(path, '2026-03-07', ['BHP']) == {}
 
