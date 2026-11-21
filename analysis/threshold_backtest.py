@@ -60,7 +60,8 @@ def portfolio_stats(returns: list[float]) -> dict:
     r = np.array(returns)
     hit = float((r > 0).mean())
     mean_r = float(r.mean())
-    sharpe = float(r.mean() / (r.std() + 1e-10) * (252 ** 0.5)) if len(r) > 1 else None
+    # Each trade is a 5-day hold: 252/5 of them a year, not 252
+    sharpe = float(r.mean() / (r.std() + 1e-10) * ((252 / 5) ** 0.5)) if len(r) > 1 else None
     total = float((1 + r).prod() - 1)
     return dict(n=len(r), hit_rate=round(hit, 4), mean_return=round(mean_r, 5),
                 sharpe=round(sharpe, 3) if sharpe else None, total_return=round(total, 4))

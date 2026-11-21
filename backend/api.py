@@ -1490,6 +1490,28 @@ def api_analysis_kronos_backtest():
     return jsonify(data)
 
 
+@app.route('/api/analysis/kronos-backtest/summary')
+def api_analysis_kronos_backtest_summary():
+    """IC summary of the Kronos backtest without per-date data (for page text)."""
+    data = _load_analysis_file('backtest_kronos.json')
+    if data is None:
+        return jsonify({'error': 'No Kronos backtest results available'}), 404
+    ic = dict(data.get('ic') or {})
+    series = [p['ic'] for p in ic.pop('ic_series', []) if p.get('ic') is not None]
+    dates = [r['date'] for r in data.get('dates', [])]
+    return jsonify({
+        **ic,
+        'min_ic': min(series) if series else None,
+        'max_ic': max(series) if series else None,
+        'first_date': dates[0] if dates else None,
+        'last_date': dates[-1] if dates else None,
+        'generated_at': data.get('generated_at'),
+        'params': data.get('params', {}),
+        'portfolios': {k: {f: v.get(f) for f in ('mean_return', 'hit_rate', 'p_value', 'final_equity')}
+                       for k, v in (data.get('portfolios') or {}).items() if v},
+    })
+
+
 @app.route('/api/analysis/kronos-history')
 def api_analysis_kronos_history():
     """Historical Kronos prediction runs.
