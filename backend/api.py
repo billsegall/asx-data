@@ -468,6 +468,40 @@ def api_batch_closes():
     return jsonify(result)
 
 
+@app.route('/api/stock/batch-ohlc')
+def api_batch_ohlc():
+    """Market sessions since a date, plus open/close for some symbols.
+
+    Query params: symbols (comma-sep, optional), start (YYYY-MM-DD).
+    Returns {"sessions": [date_iso, ...], "prices": {symbol: {date_iso: [open, close]}}}.
+    sessions lists every date any stock traded, so a day missing from it was
+    not a market day (or its EOD data hasn't landed yet).
+    """
+    symbols = [s.strip().upper() for s in request.args.get('symbols', '').split(',') if s.strip()]
+    if len(symbols) > 300:
+        return jsonify({'error': 'too many symbols'}), 400
+    try:
+        start_ts = int(datetime.datetime.strptime(request.args.get('start', ''), '%Y-%m-%d').timestamp())
+    except ValueError:
+        return jsonify({'error': 'start=YYYY-MM-DD required'}), 400
+
+    def _iso(ts):
+        return datetime.datetime.fromtimestamp(int(ts)).strftime('%Y-%m-%d')
+
+    c = stocks.cursor()
+    sessions = [_iso(r[0]) for r in c.execute(
+        'SELECT DISTINCT date FROM endofday WHERE date >= ? ORDER BY date', (start_ts,))]
+    prices = {}
+    if symbols:
+        ph = ','.join('?' * len(symbols))
+        for sym, ts, o, cl in c.execute(
+                f'SELECT symbol, date, open, close FROM endofday'
+                f' WHERE symbol IN ({ph}) AND date >= ? ORDER BY symbol, date',
+                symbols + [start_ts]):
+            prices.setdefault(sym, {})[_iso(ts)] = [o, cl]
+    return jsonify({'sessions': sessions, 'prices': prices})
+
+
 @app.route('/api/last-trading-day')
 def api_last_trading_day():
     """Most recent date with EOD price data — the last session actually

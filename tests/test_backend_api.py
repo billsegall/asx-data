@@ -369,3 +369,24 @@ class TestLiveData:
         if code == 200:
             data = _get('/api/fundamentals/all')
             assert isinstance(data, list)
+
+
+# ---------------------------------------------------------------------------
+# /api/stock/batch-ohlc
+# ---------------------------------------------------------------------------
+
+class TestBatchOhlc:
+    def test_sessions_and_prices(self):
+        d = _get('/api/stock/batch-ohlc', start='2026-11-16', symbols='BHP')
+        # Mon 16 – Fri 20 Nov 2026 were all sessions; no weekends
+        assert d['sessions'][:5] == ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20']
+        bhp = d['prices']['BHP']
+        assert set(d['sessions'][:5]) <= set(bhp)
+        assert all(len(v) == 2 and v[0] > 0 and v[1] > 0 for v in bhp.values())
+
+    def test_sessions_without_symbols(self):
+        d = _get('/api/stock/batch-ohlc', start='2026-11-16')
+        assert d['prices'] == {} and '2026-11-21' not in d['sessions']
+
+    def test_start_required(self):
+        assert _status('/api/stock/batch-ohlc?start=nope') == 400

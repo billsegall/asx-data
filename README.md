@@ -389,4 +389,6 @@ Populated by the Kronos analysis pipeline on realiti (GPU machine), synced to ha
 
 `GET /api/analysis/kronos-backtest` — the full file. `GET /api/analysis/kronos-backtest/summary` — IC summary, IC range, date span and headline portfolio figures without per-date data; the web Kronos and `/docs/kronos` pages use it for their figures.
 
+`GET /api/stock/batch-ohlc?start=YYYY-MM-DD[&symbols=A,B]` — every session date since `start` (any symbol traded) plus `{symbol: {date: [open, close]}}`; asx-web's Kronos paper trading uses it to count held sessions and record actual opens and closes.
+
 `analysis/threshold_backtest.py` slices the 5-day backtest by score threshold and market cap; its output is copied by hand into `/docs/kronos`.
