@@ -377,3 +377,16 @@ Snapshot history of Kronos model prediction runs. One row per (run, symbol). Ena
 Populated by the Kronos analysis pipeline on realiti (GPU machine), synced to harri via `analysis/sync.sh`. Predictions stored via `POST /api/analysis/kronos-predictions`.
 
 `GET /api/analysis/kronos-predictions` — latest run. `GET /api/analysis/kronos-predictions/history` — all historical runs for comparison.
+
+### Kronos backtest
+
+`analysis/cli/run_kronos_backtest.py` (run nightly by `sync.sh` on realiti) writes `analysis/results/backtest_kronos.json`: per-date forecasts and actual returns, IC summary, and net-of-fee top-N portfolios. `--pred-len N` forecasts and holds N trading days (default 5) and writes `backtest_kronos_<N>d.json`; dates step by N so holds never overlap. Rules:
+
+- Dates are the AEST trading day (`endofday.date` is midnight AEST, 14:00 UTC the day before).
+- Entry is the eval day's close; a symbol that didn't trade that day is left out. Forecasts skip symbols with no trade in the last 7 days.
+- Exit is the last close on or before the N-th trading day after entry, so a halt mid-hold is valued at its last trade.
+- The universe is symbols with `current = 1` today, so the backtest has survivorship bias.
+
+`GET /api/analysis/kronos-backtest` — the full file. `GET /api/analysis/kronos-backtest/summary` — IC summary, IC range, date span and headline portfolio figures without per-date data; the web Kronos and `/docs/kronos` pages use it for their figures.
+
+`analysis/threshold_backtest.py` slices the 5-day backtest by score threshold and market cap; its output is copied by hand into `/docs/kronos`.
