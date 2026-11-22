@@ -9,10 +9,14 @@ Phase 2: Extend to ALUMINIUM, ZINC, NICKEL
 
 API: https://api.metals.dev/v1/latest?api_key=<KEY>
 Free tier: 100 requests/month
-Usage: python3 fetch_metals_dev.py --db /path/to/stockdb.db --api-key <KEY> [--symbol LEAD] [--backfill]
+Usage: python3 fetch_metals_dev.py --db /path/to/stockdb.db [--symbol LEAD] [--backfill]
+
+The API key comes from METALS_DEV_API_KEY, in the environment or in asx-data/.env
+(gitignored). --api-key still works but puts the key in the process list.
 """
 
 import argparse
+import os
 import sqlite3
 import sys
 import logging
@@ -66,6 +70,21 @@ def init_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _env_file_value(name: str):
+    """name's value from asx-data/.env (KEY=VALUE lines), or None."""
+    env = Path(__file__).resolve().parent.parent / ".env"
+    if not env.exists():
+        return None
+    for line in env.read_text().splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key.strip().removeprefix("export ").strip() == name:
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            return value or None
+    return None
+
+
 def fetch_metals_dev_data(api_key: str) -> dict:
     """
     Fetch all metals from metals.dev API.
@@ -78,7 +97,8 @@ def fetch_metals_dev_data(api_key: str) -> dict:
         log.info(f"Fetched metals.dev data: {len(data)} items")
         return data
     except requests.exceptions.RequestException as e:
-        log.error(f"Failed to fetch metals.dev API: {e}")
+        # The request URL carries the key as a query parameter; keep it out of the log.
+        log.error("Failed to fetch metals.dev API: %s", str(e).replace(api_key, "<redacted>"))
         raise
 
 
@@ -200,12 +220,15 @@ def fetch_and_store_metals(
 def run():
     parser = argparse.ArgumentParser(description="Fetch metals from metals.dev API and store in stockdb")
     parser.add_argument("--db", required=True, help="Path to stockdb.db")
-    parser.add_argument("--api-key", required=True, help="metals.dev API key")
+    parser.add_argument("--api-key", default=None,
+                        help="metals.dev API key (default: METALS_DEV_API_KEY from the environment or asx-data/.env)")
     parser.add_argument("--symbol", default=None, help="Metal symbol to fetch (default: all configured metals)")
     parser.add_argument("--backfill", action="store_true", help="Backfill mode (allow overwriting)")
     args = parser.parse_args()
 
     # Validate API key
+    if not args.api_key:
+        args.api_key = os.environ.get("METALS_DEV_API_KEY") or _env_file_value("METALS_DEV_API_KEY")
     if not args.api_key or args.api_key.startswith("$"):
         log.error("API key not provided or not expanded. Set METALS_DEV_API_KEY env var or pass via --api-key")
         sys.exit(1)

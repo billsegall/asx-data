@@ -143,7 +143,7 @@ Unix timestamps for date; prices in commodity-specific units (see `commodity_met
 |--------|-----------|-------------|--------|
 | **yfinance** | Daily (weekdays 21:00 UTC) | Gold, Silver, Platinum, Palladium, WTI-Oil, Brent-Oil (6 total) | `fetch_commodities.py --source yf` |
 | **Trading Economics** | Weekly (Wed 22:00 UTC) | Thermal Coal, Coking Coal, Copper, Aluminium, Zinc, Nickel, Lead, Iron-Ore, Natural-Gas, LNG (Japan-Korea), Lithium, Uranium, Wheat, Corn, Soybeans (15 total) | `fetch_trading_economics.py --all` |
-| **metals.dev API** | Weekly (Sun 22:00 UTC) | Lead, Aluminium, Zinc, Nickel (4 total, free tier: 100 req/month) | `fetch_metals_dev.py --api-key $METALS_DEV_API_KEY --all` |
+| **metals.dev API** | Weekly (Sun 22:00 UTC) | Lead, Aluminium, Zinc, Nickel (4 total, free tier: 100 req/month) | `fetch_metals_dev.py` |
 | **Jupiter Mines** | Weekly (Sat 22:00 UTC) | Manganese (1 total, CNY/mtu, VAT-excluded) | `fetch_manganese.py` |
 
 **Total: 25 commodities** with no source duplication (each commodity sourced from best available API).
@@ -168,12 +168,12 @@ Scrapes commodity prices from tradingeconomics.com. Supports 15 commodities with
 - Incremental mode: skips duplicate (commodity_id, date) pairs
 - No API key required
 
-#### `fetch_metals_dev.py --db <db> --api-key <KEY> --all`
+#### `fetch_metals_dev.py --db <db>`
 Fetches industrial metal prices from metals.dev API.
 - Commodities: LEAD, ALUMINIUM, ZINC, NICKEL
 - Free tier: 100 requests/month (weekly fetch = ~4 requests/month, 96% quota headroom)
 - Incremental mode: skips duplicate (commodity_id, date) pairs
-- Requires: `METALS_DEV_API_KEY` environment variable or `--api-key` flag
+- Requires: `METALS_DEV_API_KEY`, from the environment or `asx-data/.env` (gitignored, mode 600). Keep it out of the crontab and off the command line: `--api-key` still works but shows the key in the process list. Fetch errors redact it.
 - API endpoint: `https://api.metals.dev/v1/latest?api_key=<KEY>`
 
 #### `fetch_manganese.py --db <db>`
@@ -197,7 +197,7 @@ Scrapes manganese prices from Jupiter Mines (Shanghai Metals Market data).
 0 22 * * 6 python3 $DATA/scripts/fetch_manganese.py --db $STOCKDB/stockdb.db
 
 # Industrial metals from metals.dev API — weekly Sunday 22:00 UTC (Monday 8am AEST)
-0 22 * * 0 python3 $DATA/scripts/fetch_metals_dev.py --db $STOCKDB/stockdb.db --api-key $METALS_DEV_API_KEY
+0 22 * * 0 python3 $DATA/scripts/fetch_metals_dev.py --db $STOCKDB/stockdb.db
 ```
 
 **Why staggered?** Prevents timing conflicts and quota issues. metals.dev single request fetches all 4 metals efficiently.
