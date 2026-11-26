@@ -339,6 +339,16 @@ def _enrich_batch(symbols):
     except Exception:
         pass  # fundamentals table may not exist yet
 
+    # Query 7: expiry of ASX-listed options (YYYY-MM-DD), so clients can treat
+    # a lapsed option as gone without waiting for the 90-day delisting rule
+    try:
+        c.execute(f'SELECT option_symbol, expiry FROM asx_options '
+                  f'WHERE option_symbol IN ({placeholders})', stale)
+        for row in c.fetchall():
+            result[row[0]]['expiry'] = row[1]
+    except Exception:
+        pass  # asx_options table may not exist yet
+
     for s in stale:
         _enrich_cache[s] = (now_ts, result[s])
 

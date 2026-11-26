@@ -93,6 +93,9 @@ daily EOD (`fetch_eod_daily.py`). What switches it, and why:
   codes). Delisted codes aren't probed; `/api/enrich` and `/api/symbol/<code>`
   return `current` and `delisted_on`, which asx-web uses to label them and
   pause their alerts. History is never deleted.
+- **Expired options:** `/api/enrich` also returns `expiry` (YYYY-MM-DD, from
+  `asx_options`) for ASX-listed options, so asx-web can treat a lapsed option
+  as gone the day after expiry instead of waiting for the 90-day rule.
 
 ### shorts
 symbol | date | short

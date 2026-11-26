@@ -158,6 +158,16 @@ class TestEnrichEndpoint:
         result = _post('/api/enrich', {'symbols': ['BHP', 'CBA']})
         assert isinstance(result, dict)
 
+    def test_option_carries_expiry(self):
+        sym = 'EXROB'   # Elixir Energy option, in asx_options
+        info = _get(f'/api/symbol/{sym}')
+        if not info.get('is_option'):
+            pytest.skip(f'{sym} not in asx_options')
+        expiry = info['expiry']
+        result = _post('/api/enrich', {'symbols': [sym, 'BHP']})
+        assert result[sym]['expiry'] == expiry
+        assert 'expiry' not in result.get('BHP', {})
+
     def test_concurrent_requests_do_not_500(self):
         """Regression test: StockDB used to share one sqlite3 connection
         across every request thread (Flask's `flask run` serves on a thread
