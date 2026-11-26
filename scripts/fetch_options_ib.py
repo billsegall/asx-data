@@ -93,7 +93,7 @@ def main():
     print(f"Unique underlyings to query: {len(by_underlying)}")
 
     ib = IB()
-    ib.connect(args.host, args.port, clientId=args.client_id, timeout=15)
+    ib.connect(args.host, args.port, clientId=args.client_id, readonly=True, timeout=15)
     print(f"Connected to IB Gateway {args.host}:{args.port}")
 
     # Phase 1: query IB — collect results in memory
