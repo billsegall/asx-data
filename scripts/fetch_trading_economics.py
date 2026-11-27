@@ -145,6 +145,27 @@ def parse_date_str(date_str: str) -> int:
         return None
 
 
+# A weekly scrape never legitimately moves a price by more than this factor.
+# The page-text regexes sometimes grab the wrong number (a percentage, a stock
+# level, a different unit): those showed up as 0, 62.9 or 500 in a 150k CNY
+# lithium series and 278,898 in a 16k nickel one.
+MAX_JUMP = 1.8
+
+
+def plausible(price, prev):
+    """Reason the scraped price looks wrong, or None if it's fine.
+
+    prev is the last stored price for the commodity (None if no history).
+    """
+    if price is None or price <= 0:
+        return f"non-positive price {price}"
+    if prev and prev > 0:
+        ratio = price / prev
+        if ratio > MAX_JUMP or ratio < 1 / MAX_JUMP:
+            return f"{price} is {ratio:.2f}x the last stored {prev}"
+    return None
+
+
 def run():
     parser = argparse.ArgumentParser(description="Fetch commodity prices from Trading Economics")
     parser.add_argument("--db", required=True, help="Path to stockdb.db")
@@ -196,6 +217,16 @@ def run():
             if existing:
                 log.debug(f"{commodity_id}: price for {date_str} already exists, skipping")
                 skipped += 1
+                continue
+
+            prev = conn.execute(
+                "SELECT price FROM commodity_prices WHERE id = ? AND date < ? "
+                "ORDER BY date DESC LIMIT 1", (commodity_id, unix_date)
+            ).fetchone()
+            why = plausible(price, prev[0] if prev else None)
+            if why:
+                log.error(f"{commodity_id}: rejected scraped price for {date_str}: {why}")
+                errors += 1
                 continue
 
             # Insert new price

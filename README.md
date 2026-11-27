@@ -169,6 +169,7 @@ Scrapes commodity prices from tradingeconomics.com. Supports 15 commodities with
 - Note: oil and brent-oil not supported (pages require JavaScript rendering; use yfinance instead)
 - Regex patterns match multiple price formats: "trading at XXX", "fell to XXX", "USD/unit"
 - Incremental mode: skips duplicate (commodity_id, date) pairs
+- Sanity check: a scraped price that is ≤ 0 or more than 1.8× / less than 1/1.8× the last stored price is rejected and logged as an error (the regexes sometimes grab the wrong number — a percentage, a stock level, another unit)
 - No API key required
 
 #### `fetch_metals_dev.py --db <db>`
