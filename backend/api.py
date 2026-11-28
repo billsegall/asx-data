@@ -1093,6 +1093,49 @@ def api_commodities():
     return jsonify(result)
 
 
+_commodity_live_cache = {'ts': 0, 'data': None}
+_COMMODITY_LIVE_TTL = 10 * 60
+_LIVE_MAX_JUMP = 1.8   # same sanity bound as fetch_trading_economics
+
+
+@app.route('/api/commodities/live')
+def api_commodities_live():
+    """Intraday quotes (Yahoo futures, ~15 min delayed) for commodities with a
+    yf_symbol: {id: {price, prev_close}}. Cached 10 minutes. A quote that is
+    non-positive or more than 1.8x away from the last stored close is left out
+    (bad tick or contract-roll glitch)."""
+    global _commodity_live_cache
+    now = time.time()
+    if now - _commodity_live_cache['ts'] < _COMMODITY_LIVE_TTL and _commodity_live_cache['data'] is not None:
+        return jsonify(_commodity_live_cache['data'])
+    c = stocks.cursor()
+    try:
+        rows = c.execute('''SELECT m.id, m.yf_symbol,
+                                   (SELECT price FROM commodity_prices p WHERE p.id = m.id ORDER BY date DESC LIMIT 1)
+                            FROM commodity_meta m WHERE m.yf_symbol IS NOT NULL AND m.yf_symbol != ''
+                         ''').fetchall()
+    except Exception:
+        return jsonify({'error': 'commodity tables not available'}), 503
+
+    def quote(row):
+        cid, sym, last = row
+        try:
+            fi = yf.Ticker(sym).fast_info
+            price, prev = fi.last_price, fi.previous_close
+        except Exception:
+            return cid, None
+        if not price or price <= 0 or not prev or prev <= 0:
+            return cid, None
+        if last and last > 0 and not (1 / _LIVE_MAX_JUMP <= price / last <= _LIVE_MAX_JUMP):
+            return cid, None
+        return cid, {'price': float(price), 'prev_close': float(prev)}
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        result = {cid: q for cid, q in ex.map(quote, rows) if q}
+    _commodity_live_cache = {'ts': now, 'data': result}
+    return jsonify(result)
+
+
 @app.route('/api/commodities/stats')
 def api_commodities_stats():
     """Per-commodity statistics for alerts and the digest: latest price and

@@ -156,6 +156,15 @@ by `stockdb/commodity_stats.py` (pure, tested) from the last 420 days:
 - `ma50`, `ma200` — mean over the last 70 / 280 calendar days; null unless the
   history covers the window with at least 8 points
 
+### `GET /api/commodities/live`
+
+Intraday quotes for the commodities with a `yf_symbol` (Yahoo continuous futures,
+about 15 minutes delayed): `{id: {price, prev_close}}`, cached 10 minutes. A quote
+that is ≤ 0 or more than 1.8× away from the last stored close is dropped. asx-web
+applies these to commodity alerts for price levels, 52-week highs/lows, moving
+averages and changes of a week or more; 1-day changes stay on stored closes
+because `prev_close` for continuous futures is unreliable around holidays and rolls.
+
 Null statistics are deliberate: the scraped weekly series only start in April
 2026, and computing a 12-month change or 200-day average from a few months would
 make "all commodities" alerts fire on noise.
