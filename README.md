@@ -140,6 +140,26 @@ LEAD | 1775964665 | 1919.30
 
 Unix timestamps for date; prices in commodity-specific units (see `commodity_meta.unit`).
 
+### `GET /api/commodities/stats`
+
+Per-commodity statistics for asx-web's commodity alerts and daily digest, computed
+by `stockdb/commodity_stats.py` (pure, tested) from the last 420 days:
+
+- `cadence` — `daily` or `weekly` (median gap of the last 10 points > 3 days)
+- `date`, `price` — latest point; `data_start` — first stored date
+- `changes` — keyed `"1"`, `"7"`, `"30"`, `"91"`, `"182"`, `"365"` (calendar days):
+  `{date, price, pct}` of the last point at or before latest − period, or null when
+  there's none within 10 days of that date (a gap) or, for `"1"`, the series is weekly
+- `high_52w`, `low_52w` — range of the year before the latest point, *excluding*
+  it, so "new 52-week high" means above every earlier price; null without a full
+  year and 26 points
+- `ma50`, `ma200` — mean over the last 70 / 280 calendar days; null unless the
+  history covers the window with at least 8 points
+
+Null statistics are deliberate: the scraped weekly series only start in April
+2026, and computing a 12-month change or 200-day average from a few months would
+make "all commodities" alerts fire on noise.
+
 ### Data sources
 
 | Source | Frequency | Commodities | Script |

@@ -1093,6 +1093,38 @@ def api_commodities():
     return jsonify(result)
 
 
+@app.route('/api/commodities/stats')
+def api_commodities_stats():
+    """Per-commodity statistics for alerts and the digest: latest price and
+    date, % change over 1d/1w/1m/3m/6m/12m (with the reference point used),
+    52-week high/low excluding the latest point, 50/200-day averages, and
+    cadence (daily/weekly). Statistics the history can't support are null;
+    see stockdb/commodity_stats.py."""
+    import commodity_stats  # noqa: PLC0415
+    c = stocks.cursor()
+    try:
+        meta = c.execute('SELECT id, name, unit FROM commodity_meta ORDER BY id').fetchall()
+        since = int(time.time() - commodity_stats.LOOKBACK_DAYS * 86400)
+        rows = c.execute('SELECT id, date, price FROM commodity_prices WHERE date >= ? ORDER BY id, date',
+                         (since,)).fetchall()
+        starts = dict(c.execute('SELECT id, MIN(date) FROM commodity_prices WHERE price > 0 GROUP BY id'))
+    except Exception:
+        return jsonify({'error': 'commodity tables not available'}), 503
+    by_id = {}
+    for cid, d, p in rows:
+        by_id.setdefault(cid, []).append((d, p))
+    out = {}
+    for cid, name, unit in meta:
+        s = commodity_stats.stats(by_id.get(cid, []))
+        if s is None:
+            continue
+        if starts.get(cid):
+            s['data_start'] = datetime.datetime.fromtimestamp(
+                starts[cid], datetime.timezone.utc).date().isoformat()
+        out[cid] = {'id': cid, 'name': name, 'unit': unit, **s}
+    return jsonify(out)
+
+
 @app.route('/api/commodity/<commodity_id>')
 def api_commodity(commodity_id):
     """Time-series prices for one commodity. Optional ?start=YYYYMMDD&end=YYYYMMDD."""

@@ -158,6 +158,17 @@ class TestEnrichEndpoint:
         result = _post('/api/enrich', {'symbols': ['BHP', 'CBA']})
         assert isinstance(result, dict)
 
+    def test_commodity_stats_shape(self):
+        data = _get('/api/commodities/stats')
+        if not data:
+            pytest.skip('no commodity data')
+        for cid, s in data.items():
+            assert s['id'] == cid and s['price'] > 0
+            assert s['cadence'] in ('daily', 'weekly')
+            assert set(s['changes']) == {'1', '7', '30', '91', '182', '365'}
+            if s['cadence'] == 'weekly':
+                assert s['changes']['1'] is None
+
     def test_option_carries_expiry(self):
         sym = 'EXROB'   # Elixir Energy option, in asx_options
         info = _get(f'/api/symbol/{sym}')
