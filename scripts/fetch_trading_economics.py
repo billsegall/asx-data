@@ -5,7 +5,7 @@
 Fetch commodity prices from Trading Economics.
 
 Supports: coal (thermal), coking-coal, copper, aluminum, zinc, nickel, lead, iron-ore,
-          natural-gas, liquefied-natural-gas-japan-korea, lithium, uranium, wheat, corn, soybeans
+          natural-gas, liquefied-natural-gas-japan-korea, lithium, uranium, wheat, corn, soybeans, neodymium
 (Note: oil and brent-oil are excluded as they're already fetched via yfinance and their TE pages require JavaScript rendering)
 
 Usage: python3 fetch_trading_economics.py --db /path/to/stockdb.db [--commodity COAL] [--all]
@@ -51,6 +51,7 @@ COMMODITY_MAPPINGS = {
     'wheat': ('WHEAT', 'USc/bushel'),
     'corn': ('CORN', 'USc/bushel'),
     'soybeans': ('SOYBEANS', 'USc/bushel'),
+    'neodymium': ('NEODYMIUM', 'CNY/tonne'),
 }
 
 
@@ -97,10 +98,14 @@ def fetch_te_price(slug: str) -> tuple:
         text = soup.get_text()
 
         # Extract price - try multiple patterns
-        price_match = None
+        # Pattern 0: the quote header "Actual 927500 Daily Change". Present on
+        # every commodity page (checked 2026-11), so it comes first; the
+        # looser patterns below have grabbed wrong numbers before.
+        price_match = re.search(r'Actual\s+([\d,.]+)\s+Daily Change', ' '.join(text.split()))
 
-        # Pattern 1: "trading at XXX.XX"
-        price_match = re.search(r'trading at\s*([\d,.]+)', text, re.IGNORECASE)
+        # Pattern 1: "trading at XXX.XX" / "traded flat at XXX.XX"
+        if not price_match:
+            price_match = re.search(r'(?:trading|traded)(?: flat)? at\s*([\d,.]+)', text, re.IGNORECASE)
 
         # Pattern 2: "fell to XXX.XX USd/Bu" or "rose to XXX.XX"
         if not price_match:

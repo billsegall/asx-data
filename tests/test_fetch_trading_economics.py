@@ -47,3 +47,32 @@ def test_run_rejects_implausible(tmp_path):
 
 def test_run_inserts_plausible(tmp_path):
     assert _run(tmp_path, 85900.0) == [(91800.0,), (85900.0,)]
+
+
+NEODYMIUM_PAGE = (
+    '<html><body><div>Neodymium Rare Earth</div><div>Actual</div><div>927500</div>'
+    '<div>Daily Change</div><div>0</div><div>0%</div>'
+    '<p>Neodymium traded flat at 927,500 CNY/T on November 27, 2026.</p>'
+    '<td>Molybdenum</td><td>607.50</td><td>Gallium 1,730.00 USD</td>'
+    '<td>Soda Ash 500 CNY</td></body></html>'
+)
+
+
+def _fetch(html):
+    resp = type('R', (), {'text': html, 'raise_for_status': lambda self: None})()
+    with patch.object(fte.requests, 'get', return_value=resp):
+        return fte.fetch_te_price('neodymium')
+
+
+def test_fetch_reads_quote_header():
+    # The loose "<number> CNY" fallback used to pick up 500 from the sidebar
+    assert _fetch(NEODYMIUM_PAGE) == (927500.0, 'November 27, 2026')
+
+
+def test_fetch_traded_flat_at_fallback():
+    assert _fetch('<p>Neodymium traded flat at 927,500 CNY/T on November 27, 2026.</p>') == \
+        (927500.0, 'November 27, 2026')
+
+
+def test_neodymium_mapped():
+    assert fte.COMMODITY_MAPPINGS['neodymium'] == ('NEODYMIUM', 'CNY/tonne')

@@ -67,6 +67,7 @@ COMMODITIES = [
     # Other metals / minerals
     {'id': 'URANIUM',      'name': 'Uranium',           'unit': 'USD/lb',      'te_symbol': 'URANIUM:COM',      'yf_symbol': None},
     {'id': 'LITHIUM',      'name': 'Lithium',           'unit': 'CNY/tonne',   'te_symbol': 'LITHIUM:COM',      'yf_symbol': None},
+    {'id': 'NEODYMIUM',    'name': 'Neodymium',         'unit': 'CNY/tonne',   'te_symbol': None,               'yf_symbol': None},
     # Agriculture
     {'id': 'WHEAT',        'name': 'Wheat',             'unit': 'USc/bushel',  'te_symbol': 'W1:COM',           'yf_symbol': 'ZW=F'},
     {'id': 'CORN',         'name': 'Corn',              'unit': 'USc/bushel',  'te_symbol': 'C1:COM',           'yf_symbol': 'ZC=F'},

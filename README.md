@@ -174,7 +174,7 @@ make "all commodities" alerts fire on noise.
 | Source | Frequency | Commodities | Script |
 |--------|-----------|-------------|--------|
 | **yfinance** | Daily (weekdays 21:00 UTC) | Gold, Silver, Platinum, Palladium, WTI-Oil, Brent-Oil (6 total) | `fetch_commodities.py --source yf` |
-| **Trading Economics** | Weekly (Wed 22:00 UTC) | Thermal Coal, Coking Coal, Copper, Aluminium, Zinc, Nickel, Lead, Iron-Ore, Natural-Gas, LNG (Japan-Korea), Lithium, Uranium, Wheat, Corn, Soybeans (15 total) | `fetch_trading_economics.py --all` |
+| **Trading Economics** | Weekly (Wed 22:00 UTC) | Thermal Coal, Coking Coal, Copper, Aluminium, Zinc, Nickel, Lead, Iron-Ore, Natural-Gas, LNG (Japan-Korea), Lithium, Uranium, Neodymium, Wheat, Corn, Soybeans (16 total) | `fetch_trading_economics.py --all` |
 | **metals.dev API** | Weekly (Sun 22:00 UTC) | Lead, Aluminium, Zinc, Nickel (4 total, free tier: 100 req/month) | `fetch_metals_dev.py` |
 | **Jupiter Mines** | Weekly (Sat 22:00 UTC) | Manganese (1 total, CNY/mtu, VAT-excluded) | `fetch_manganese.py` |
 
@@ -189,14 +189,14 @@ Fetches yfinance OHLCV data. Default source for precious metals and oils.
 - No API key required
 
 #### `fetch_trading_economics.py --db <db> --all`
-Scrapes commodity prices from tradingeconomics.com. Supports 15 commodities with HTML parsing (BeautifulSoup).
+Scrapes commodity prices from tradingeconomics.com. Supports 16 commodities with HTML parsing (BeautifulSoup).
 - **Bulk commodities**: coal (thermal), coking-coal, iron-ore
 - **Metals**: copper, aluminum, zinc, nickel, lead
 - **Energy**: natural-gas, liquefied-natural-gas-japan-korea (LNG JKM)
-- **Critical minerals**: lithium (CNY/tonne from Shanghai Metals Market), uranium
+- **Critical minerals**: lithium (CNY/tonne from Shanghai Metals Market), uranium, neodymium (rare earths, CNY/tonne; history starts 2026-11-27)
 - **Agriculture**: wheat, corn, soybeans
 - Note: oil and brent-oil not supported (pages require JavaScript rendering; use yfinance instead)
-- Regex patterns match multiple price formats: "trading at XXX", "fell to XXX", "USD/unit"
+- Price comes from the page's quote header ("Actual XXX Daily Change"), present on every commodity page; falls back to "trading/traded flat at XXX", "fell to XXX", "XXX USD/unit"
 - Incremental mode: skips duplicate (commodity_id, date) pairs
 - Sanity check: a scraped price that is ≤ 0 or more than 1.8× / less than 1/1.8× the last stored price is rejected and logged as an error (the regexes sometimes grab the wrong number — a percentage, a stock level, another unit)
 - No API key required
